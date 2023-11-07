@@ -149,13 +149,17 @@ public:
             reset_to_empty_state();
             return;
         }
-        if (num_buckets == bucket_count()) { // TODO: not done
+        if (num_buckets == bucket_count()) { // do not need do any thing
             return;
         }
 
         auto new_prime_index = hash_policy.next_size_over(num_buckets);
-        // line 635
+        int8_t new_max_lookups = compute_max_lookups(num_buckets);
+        EntryPointer new_buckets(AllocatorTraits::allocate(*this, num_buckets + new_max_lookups)); //  Guaranteed capacity at higher load factors???
+    
+        // line 636
     }
+
 
     void reset_to_empty_state() {
         deallocate_data(_entries, _num_slots_minus_one, _max_lookups);
@@ -165,6 +169,11 @@ public:
         _max_lookups = detailv3::min_lookups - 1;
         return;
     }
+
+    size_t bucket_count() const {
+        return _num_slots_minus_one ? _num_slots_minus_one + 1 : 0;
+    }
+
 private:
     EntryPointer _entries = Entry::empty_default_table();
     size_t _num_slots_minus_one = 0;
@@ -173,6 +182,10 @@ private:
     float _max_load_factor = 0.5f;
     size_t _num_elements = 0;
 
+    static int8_t compute_max_lookups(size_t num_buckets) {
+        int8_t desired = log2(num_buckets);
+        return std::max(detailv3::min_lookups, desired);
+    }
 };
 
 
