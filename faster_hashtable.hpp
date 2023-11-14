@@ -187,7 +187,27 @@ public:
         deallocate_data(new_buckets, num_buckets, old_max_lookups);
     }
 
-    // line 575
+    template<typename Key, typename ...Args>
+    std::pair<iterator, bool> emplace(Key&& key, Args&& ..args) {
+        // step1: get the index of new key
+        size_t index = _hash_policy.index_for_hash(hash_object(key), _num_slots_minus_one); // TODO
+        
+        // step2: check the key if it has already in the hashtable
+        EntryPointer current_entry = _entries + ptrdiff_t(index);
+        int8_t distance_from_desired = 0;
+        for (; current_entry->distance_from_desired >= distance_from_desired; ++current_entry, ++distance_from_desired) {
+            if (compares_equal(key, current_entry->value)) {
+                return std::make_pair(current_entry, false);
+            }
+        }
+
+        return emplace_new_key(distance_from_desired, current_entry, std::forward<Key>(key), std::forward<Args>(args)...);
+    }
+
+    template<typename... Args>
+    iterator emplace_hint(const_iterator, Args& ...args) {
+        return emplace(std::forward<Args>(args)...).first;
+    }
 
     std::pair<iterator, bool> insert(const value_type& value) {
         return emplace(value);
