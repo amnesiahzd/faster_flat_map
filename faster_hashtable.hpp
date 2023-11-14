@@ -132,7 +132,7 @@ public:
     faster_hashtable(const faster_hashtable& other, const ArgumentAlloc& alloc)
             // Hasher is the base class of this 
             : EntryAlloc(alloc), Hasher(other), Equal(other), _max_load_factor(other._max_load_factor) {
-        rehash_for_other_container(other);
+        rehash_for_other_container(other); // TODO
         try {
             insert(other.begin(), other.end()); // TODO
         } catch(...) {
