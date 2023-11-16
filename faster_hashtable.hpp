@@ -18,6 +18,7 @@
  * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+#pragma once
 
 #include <algorithm>
 #include <initializer_list>
@@ -26,9 +27,52 @@
 #include <utility>
 #include <stdint.h>
 
-#pragma once
+// using faster_hashtable = sherwood_v3_table;
 
 namespace ddaof {
+
+static constexpr int8_t min_lookups = 4;
+
+template<typename T>
+struct sherwood_v3_entry {
+    sherwood_v3_entry() {}
+    sherwood_v3_entry(int8_t distance_from_desired)
+            :_distance_from_desired(distance_from_desired) {}
+    ~sherwood_v3_entry() {}
+
+    static sherwood_v3_entry* empty_default_table() {
+        static sherwood_v3_entry result[min_lookups] = { {}, {}, {}, {_special_end_value} }; // why?
+        return result;
+    }
+
+    bool has_value() const {
+        return _distance_from_desired >= 0;
+    }
+
+    bool is_empty() const {
+        return _distance_from_desired < 0;
+    }
+
+    bool is_at_desired_position() const { 
+        return _distance_from_desired <= 0;
+    }
+
+    template<typename... Args>
+    void emplace(int8_t distance, Args&& ...args) { 
+        new (std::addressof(value)) T(std::forward<Args>(args)...);
+        _distance_from_desired = distance;
+    }
+
+    void destroy_value() {
+        value.~T(); // TODO: how about to add a judge function to judge if it had a destroy function
+        _distance_from_desired = -1;
+    }
+
+    int8_t _distance_from_desired = -1;
+    static constexpr int8_t _special_end_value = 0;
+    union { T value }; // why?
+};
+
 
 template <typename T, typename FindKey, 
           typename ArgumentHash, typename Hasher,
@@ -132,18 +176,18 @@ public:
     faster_hashtable(const faster_hashtable& other, const ArgumentAlloc& alloc)
             // Hasher is the base class of this 
             : EntryAlloc(alloc), Hasher(other), Equal(other), _max_load_factor(other._max_load_factor) {
-        rehash_for_other_container(other); // TODO
+        rehash_for_other_container(other);
         try {
-            insert(other.begin(), other.end()); // TODO
+            insert(other.begin(), other.end());
         } catch(...) {
             clear();
-            deallocate_data(_entries, _num_slots_minus_one, _max_lookups); // TODO
+            deallocate_data(_entries, _num_slots_minus_one, _max_lookups);
             throw;
         }
     }
 
     faster_hashtable(const faster_hashtable& other)
-            : faster_hashtable(other, AllocatorTraits::select_on_container_copy_construction(other.get_allocator())) {}
+            : faster_hashtable(other, AllocatorTraits::select_on_container_copy_construction(other.get_allocator())) {} // TODO
 
     void rehash(size_t num_buckets) {
         // step1 caculate the new num of buckets
@@ -179,18 +223,27 @@ public:
 
         // step5 deallocate old buckets
         for (EntryPointer it = new_buckets, end = it + static_cast<ptrdiff_t>(num_buckets + old_max_lookups); it != end; ++it) {
-            if (it->has_value()) { // TODO
+            if (it->has_value()) {
                 emplace(std::move(it->value));
-                it->destroy_value(); // TODO
+                it->destroy_value();
             }
         }
         deallocate_data(new_buckets, num_buckets, old_max_lookups);
     }
 
+    // get the max of the buckets to reserve
+    size_t num_buckets_for_reserve(size_t num_elements) const {
+        return static_cast<size_t>(std::ceil(num_elements / std::min(0.5, static_cast<double>(_max_load_factor))));
+    }
+
+    void rehash_for_other_container(const faster_hashtable& other) {
+        rehash(num_buckets_for_reserve(other.size()), other.bucket_count());
+    }
+
     template<typename Key, typename ...Args>
     std::pair<iterator, bool> emplace(Key&& key, Args&& ..args) {
         // step1: get the index of new key
-        size_t index = _hash_policy.index_for_hash(hash_object(key), _num_slots_minus_one); // TODO
+        size_t index = _hash_policy.index_for_hash(hash_object(key), _num_slots_minus_one);
         
         // step2: check the key if it has already in the hashtable
         EntryPointer current_entry = _entries + ptrdiff_t(index);
@@ -252,6 +305,13 @@ private:
         int8_t desired = log2(num_buckets);
         return std::max(detailv3::min_lookups, desired);
     }
+
+    void deallocate_data(EntryPointer begin, size_t num_slots_minus_one, int8_t max_lookups) {
+        if (begin != Entry::empty_default_table()) {
+            AllocatorTraits::deallocate(*this, begin, num_slots_minus_one + max_lookups + 1);
+        }
+    }
+
 };
 
 struct prime_number_hash_policy {
@@ -549,6 +609,18 @@ struct prime_number_hash_policy {
 
     void commit(mod_function new_mod_function) {
         _current_mod_function = new_mod_function;
+    }
+
+    void reset() {
+        _current_mod_function = &mod0;
+    }
+
+    size_t index_for_hash(size_t hash, size_t /*num_slots_minus_one*/) const {
+        return _current_mod_function(hash);
+    }
+
+    size_t keep_in_range(size_t index, size_t num_slots_minus_one) const {
+        return index > num_slots_minus_one ? _current_mod_function(index) : index;
     }
 
 private:
