@@ -102,6 +102,9 @@ public:
     using pointer = T*;
     using const_pointer = const T*;
 
+    using iterator = templated_iterator<value_type>;
+    using const_iterator = templated_iterator<const value_type>;
+
     // all constructor
 
     faster_hashtable() {}
@@ -188,6 +191,139 @@ public:
 
     faster_hashtable(const faster_hashtable& other)
             : faster_hashtable(other, AllocatorTraits::select_on_container_copy_construction(other.get_allocator())) {} // TODO
+
+    faster_hashtable(faster_hashtable&& other) noexcept 
+            // why can use other to initial the temp
+            : EntryAlloc(std::move(other)), Hasher(std::move(other)), Equal(std::move(other)) {
+        swap_pointers(other);
+    }
+
+    faster_hashtable(faster_hashtable&& other, const ArgumentAlloc& alloc) noexcept 
+            : EntryAlloc(alloc), Hasher(std::move(other)), Equal(std::move(other)) {
+        swap_pointers(other);
+    }
+
+    faster_hashtable& operator=(const faster_hashtable& other) { 
+        if (this == std::addressof(other)) {
+            return *this;
+        }
+
+        clear();
+        if (AllocatorTraits::propagate_on_container_copy_assignment::value) { // TODO
+            if (static_cast<EntryAlloc>(*this) != static_cast<const EntryAlloc&>(other)) {
+                reset_to_empty_state();
+            }
+            AssignIfTrue<EntryAlloc, AllocatorTraits::propagate_on_container_copy_assignment::value>()(*this, other); // TODO
+        }
+
+        _max_load_factor = other._max_load_factor;
+        static_cast<Hasher&>(*this) = other;
+        static_cast<Equal&>(*this) = other;
+        rehash_for_other_container(other);
+        insert(other.begin(), other.end());
+        return *this;
+    }
+
+    const allocator_type& get_allocator() const {
+        return static_cast<const allocator_type&>(*this);
+    }
+
+    const ArgumentEqual& key_eq() const {
+        return static_cast<const ArgumentEqual&>(*this);
+    }
+
+    const ArgumentHash & hash_function() const {
+        return static_cast<const ArgumentHash&>(*this);
+    }
+
+    ~faster_hashtable() {
+        clear();
+        deallocate_data(_entries, _num_slots_minus_one, _max_lookups);
+    }
+
+    faster_hashtable& operator=(const faster_hashtable& other) { // TODO: clear why is different from copy=
+        if (this == std::addressof(other)) {
+            return *this;
+        } else if (AllocatorTraits::propagate_on_container_move_assignment::value) { // TODO
+            clear();
+            reset_to_empty_state();
+            AssignIfTrue<EntryAlloc, AllocatorTraits::propagate_on_container_move_assignment::value>()(*this, std::move(other));
+            swap_pointers(other);
+        } else if (static_cast<EntryAlloc &>(*this) == static_cast<EntryAlloc &>(other)) {
+            swap_pointers(other);
+        } else {
+            clear();
+            _max_load_factor = other._max_load_factor;
+            rehash_for_other_container(other);
+            for (T& elem : other) {
+                emplace(std::move(elem));
+            }
+                
+            other.clear();
+        }
+
+        static_cast<Hasher&>(*this) = std::move(other);
+        static_cast<Equal&>(*this) = std::move(other);
+        return *this;
+    }
+
+    iterator begin() {
+        for (EntryPointer it = _entries; ; ++it) {
+            if (it->has_value) {
+                return {it};
+            }
+        }
+    }
+
+    const_iterator begin() const {
+        for (EntryPointer it = _entries; ; ++it) {
+            if (it->has_value) {
+                return {it}; // TODO: why use this
+            }
+        }
+    }
+
+    const_iterator cbegin() const {
+        return begin();
+    }
+
+    iterator end() {
+        return { _entries + static_cast<ptrdiff_t>(_num_slots_minus_one + _max_lookups) };
+    }
+
+    const_iterator end() const {
+        return { _entries + static_cast<ptrdiff_t>(_num_slots_minus_one + _max_lookups) };
+    }
+
+    const_iterator cend() const {
+        return end();
+    }
+
+    const_iterator find(const FindKey & key) const {
+        return const_cast<faster_hashtable*>(this)->find(key); // whi
+    }
+
+    size_t count(const FindKey& key) const {
+        return find(key) == end() ? 0 : 1;
+    }
+
+    std::pair<iterator, iterator> equal_range(const FindKey& key) {
+        iterator found = find(key);
+        if (found == end()) {
+            return std::make_pair(found, found);
+        } else {
+            return std::make_pair(found, std::next(found));
+        }   
+    }
+
+    std::pair<const_iterator, const_iterator> equal_range(const FindKey& key) const {
+        iterator found = find(key);
+        if (found == end()) {
+            return std::make_pair(found, found);
+        } else {
+            return std::make_pair(found, std::next(found));
+        }   
+    }
 
     void rehash(size_t num_buckets) {
         // step1 caculate the new num of buckets
