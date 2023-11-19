@@ -73,7 +73,6 @@ struct sherwood_v3_entry {
     union { T value }; // why?
 };
 
-
 template <typename T, typename FindKey, 
           typename ArgumentHash, typename Hasher,
           typename ArgumentEqual, typename Equal,
@@ -421,7 +420,7 @@ public:
         _entries = Entry::empty_default_table();
         _num_slots_minus_one = 0;
         _hash_policy.reset();
-        _max_lookups = detailv3::min_lookups - 1;
+        _max_lookups = ddaof::min_lookups - 1;
         return;
     }
 
@@ -433,13 +432,13 @@ private:
     EntryPointer _entries = Entry::empty_default_table();
     size_t _num_slots_minus_one = 0;
     typename HashPolicySelector<ArgumentHash>::type _hash_policy;
-    int8_t _max_lookups = detailv3::min_lookups - 1; // TODO: not done
+    int8_t _max_lookups = ddaof::min_lookups - 1; // TODO: not done
     float _max_load_factor = 0.5f;
     size_t _num_elements = 0;
 
     static int8_t compute_max_lookups(size_t num_buckets) {
         int8_t desired = log2(num_buckets);
-        return std::max(detailv3::min_lookups, desired);
+        return std::max(ddaof::min_lookups, desired);
     }
 
     void deallocate_data(EntryPointer begin, size_t num_slots_minus_one, int8_t max_lookups) {
@@ -763,9 +762,111 @@ private:
     mod_function _current_mod_function = &mod0;
 };
 
+struct power_of_two_hash_policy {
+    size_t index_for_hash(size_t hash, size_t num_slots_minus_one) const { // TODO: whats the meaning
+        return hash & num_slots_minus_one;
+    }
 
+    size_t keep_in_range(size_t index, size_t num_slots_minus_one) const { // TODO: whats the meaning
+        return index_for_hash(index, num_slots_minus_one);
+    }
+
+    int8_t next_size_over(size_t& size) const { // why use pass-by-ref?
+        size = ddaof::next_power_of_two(size); // TODO
+        return 0;
+    }
+
+    void commit(int8_t) {}
+    void reset() {}
+};
+
+
+struct fibonacci_hash_policy {
+    size_t index_for_hash(size_t hash, size_t num_slots_minus_one) const { // TODO: whats the meaning
+        return (11400714819323198485ull * hash) >> shift; // TODO:?
+    }
+
+    size_t keep_in_range(size_t index, size_t num_slots_minus_one) const { // TODO: whats the meaning
+        return index & num_slots_minus_one; // TODO:?
+    }
+
+    int8_t next_size_over(size_t& size) const { // why use pass-by-ref?
+        size = std::max(size_t(2), ddaof::next_power_of_two(size));
+        return 64 - ddaof::log2(size);
+    }
+
+    void commit(int8_t shift) {
+        this->shift = shift;
+    }
+
+    void reset() {
+        shift = 63;
+    }
+private:
+    int8_t shift = 63;
+};
+
+inline size_t next_power_of_two(size_t i) { // TODO: ?
+    --i;
+    i |= i >> 1;
+    i |= i >> 2;
+    i |= i >> 4;
+    i |= i >> 8;
+    i |= i >> 16;
+    i |= i >> 32;
+    ++i;
+    return i;
+}
+
+inline int8_t log2(size_t value) { // TODO:?
+    static constexpr int8_t table[64] = {
+        63,  0, 58,  1, 59, 47, 53,  2,
+        60, 39, 48, 27, 54, 33, 42,  3,
+        61, 51, 37, 40, 49, 18, 28, 20,
+        55, 30, 34, 11, 43, 14, 22,  4,
+        62, 57, 46, 52, 38, 26, 32, 41,
+        50, 36, 17, 19, 29, 10, 13, 21,
+        56, 45, 25, 31, 35, 16,  9, 12,
+        44, 24, 15,  8, 23,  7,  6,  5
+    };
+    value |= value >> 1;
+    value |= value >> 2;
+    value |= value >> 4;
+    value |= value >> 8;
+    value |= value >> 16;
+    value |= value >> 32;
+    return table[((value - (value >> 1)) * 0x07EDD5E59A4E28C2) >> 58];
+}
+
+template<typename T, bool>
+struct AssignIfTrue {
+    void operator()(T& lhs, const T& rhs) {
+        lhs = rhs;
+    }
+
+    void operator()(T& lhs, T&& rhs) {
+        lhs = std::move(rhs);
+    }
+};
+
+template<typename T>
+struct AssignIfTrue<T, false> {
+    void operator()(T &, const T &) {}
+    void operator()(T &, T &&) {}
+};
+
+template<typename...> 
+using void_t = void;
+
+template<typename T, typename = void>
+struct HashPolicySelector {
+    typedef fibonacci_hash_policy type;
+};
+
+template<typename T>
+struct HashPolicySelector<T, void_t<typename T::hash_policy>> {
+    typedef typename T::hash_policy type;
+};
 
 
 } // end namespace ddaof
-
-
