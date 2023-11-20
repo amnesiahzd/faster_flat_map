@@ -33,6 +33,136 @@ namespace ddaof {
 
 static constexpr int8_t min_lookups = 4;
 
+
+/**
+ * This code defines a template class functor_storage that serves as a wrapper for a callable object (Functor)
+ * It inherits from Functor and provides two overloaded operator() functions for invoking the stored callable object
+ * The class supports both mutable and const-correct invocations, allowing it to adapt to various callable types. 
+ * The constructor facilitates the initialization of the functor_storage object with a provided Functor. 
+ * This design enables a unified interface for calling different callable objects while maintaining the benefits of type safety and flexibility.
+*/
+template<typename Result, typename Functor>
+struct functor_storage : Functor {
+    functor_storage() = default;
+    functor_storage(const Functor& functor)
+            : Functor(functor) {}
+
+    template<typename... Args>
+    Result operator()(Args&& ...args) {
+        return static_cast<Functor&>(*this)(std::forward<Args>(args)...);
+    }
+
+    template<typename... Args>
+    Result operator()(Args&& ...args) const {
+        return static_cast<const Functor&>(*this)(std::forward<Args>(args)...);
+    }
+};
+
+template<typename Result, typename... Args> // TODO: get clear
+struct functor_storage<Result, Result (*)(Args...)> {
+    using (*function_ptr)(Args...) = Result;
+    function_ptr function;
+    functor_storage(function_ptr function)
+            : function(function) {}
+    
+    Result operator()(Args... args) const {
+        return function(std::forward<Args>(args)...);
+    }
+
+    operator function_ptr &() {
+        return function;
+    }
+
+    operator const function_ptr &() {
+        return function;
+    }
+};
+
+template<typename key_type, typename value_type, typename hasher>
+struct KeyOrValueHasher : functor_storage<size_t, hasher> {
+    using hasher_storage = functor_storage<size_t, hasher>
+
+    KeyOrValueHasher() = default;
+    KeyOrValueHasher(const hasher & hash)
+            : hasher_storage(hash) {}
+
+    size_t operator()(const key_type& key) {
+        return static_cast<hasher_storage&>(*this)(key);
+    }
+
+    size_t operator()(const key_type& key) const {
+        return static_cast<const hasher_storage&>(*this)(key);
+    }
+
+    size_t operator()(const value_type& value) {
+        return static_cast<hasher_storage&>(*this)(value.first);
+    }
+
+    size_t operator()(const value_type& value) const {
+        return static_cast<const hasher_storage&>(*this)(value.first);
+    }
+
+    template<typename First, typename Second>
+    size_t operator()(const std::pair<First, Second>& value) {
+        return static_cast<hasher_storage&>(*this)(value.first);
+    }
+
+    template<typename First, typename Second>
+    size_t operator()(const std::pair<First, Second>& value) const {
+        return static_cast<const hasher_storage&>(*this)(value.first);
+    }
+};
+
+template<typename key_type, typename value_type, typename key_equal>
+struct KeyOrValueEquality : functor_storage<bool, key_equal> {
+    using equality_storage = functor_storage<bool, key_equal>
+
+    KeyOrValueEquality() = default;
+    KeyOrValueEquality(const key_equal& equality)
+            : equality_storage(equality) {}
+
+    bool operator()(const key_type& lhs, const key_type& rhs) {
+        return static_cast<equality_storage&>(*this)(lhs, rhs);
+    }
+
+    bool operator()(const key_type& lhs, const value_type& rhs) {
+        return static_cast<equality_storage&>(*this)(lhs, rhs.first);
+    }
+
+    bool operator()(const value_type& lhs, const key_type& rhs) {
+        return static_cast<equality_storage&>(*this)(lhs.first, rhs);
+    }
+
+    bool operator()(const value_type& lhs, const value_type& rhs) {
+        return static_cast<equality_storage&>(*this)(lhs.first, rhs.first);
+    }
+
+    template<typename First, typename Second>
+    bool operator()(const key_type& lhs, const std::pair<First, Second>& rhs) {
+        return static_cast<equality_storage&>(*this)(lhs, rhs.first);
+    }
+
+    template<typename First, typename Second>
+    bool operator()(const std::pair<First, Second>& lhs, const key_type& rhs) {
+        return static_cast<equality_storage &>(*this)(lhs.first, rhs);
+    }
+
+    template<typename First, typename Second>
+    bool operator()(const value_type& lhs, const std::pair<First, Second>& rhs) {
+        return static_cast<equality_storage &>(*this)(lhs.first, rhs.first);
+    }
+
+    template<typename First, typename Second>
+    bool operator()(const std::pair<First, Second>& lhs, const value_type& rhs) {
+        return static_cast<equality_storage &>(*this)(lhs.first, rhs.first);
+    }
+
+    template<typename FL, typename SL, typename FR, typename SR>
+    bool operator()(const std::pair<FL, SL>& lhs, const std::pair<FR, SR>& rhs) {
+        return static_cast<equality_storage &>(*this)(lhs.first, rhs.first);
+    }
+};
+
 template<typename T>
 struct sherwood_v3_entry {
     sherwood_v3_entry() {}
@@ -71,6 +201,68 @@ struct sherwood_v3_entry {
     int8_t _distance_from_desired = -1;
     static constexpr int8_t _special_end_value = 0;
     union { T value }; // why?
+};
+
+inline int8_t log2(size_t value) { // TODO:?
+    static constexpr int8_t table[64] = {
+        63,  0, 58,  1, 59, 47, 53,  2,
+        60, 39, 48, 27, 54, 33, 42,  3,
+        61, 51, 37, 40, 49, 18, 28, 20,
+        55, 30, 34, 11, 43, 14, 22,  4,
+        62, 57, 46, 52, 38, 26, 32, 41,
+        50, 36, 17, 19, 29, 10, 13, 21,
+        56, 45, 25, 31, 35, 16,  9, 12,
+        44, 24, 15,  8, 23,  7,  6,  5
+    };
+    value |= value >> 1;
+    value |= value >> 2;
+    value |= value >> 4;
+    value |= value >> 8;
+    value |= value >> 16;
+    value |= value >> 32;
+    return table[((value - (value >> 1)) * 0x07EDD5E59A4E28C2) >> 58];
+}
+
+template<typename T, bool>
+struct AssignIfTrue {
+    void operator()(T& lhs, const T& rhs) {
+        lhs = rhs;
+    }
+
+    void operator()(T& lhs, T&& rhs) {
+        lhs = std::move(rhs);
+    }
+};
+
+template<typename T>
+struct AssignIfTrue<T, false> {
+    void operator()(T &, const T &) {}
+    void operator()(T &, T &&) {}
+};
+
+inline size_t next_power_of_two(size_t i) { // TODO: ?
+    --i;
+    i |= i >> 1;
+    i |= i >> 2;
+    i |= i >> 4;
+    i |= i >> 8;
+    i |= i >> 16;
+    i |= i >> 32;
+    ++i;
+    return i;
+}
+
+template<typename...> 
+using void_t = void;
+
+template<typename T, typename = void>
+struct HashPolicySelector {
+    typedef fibonacci_hash_policy type;
+};
+
+template<typename T>
+struct HashPolicySelector<T, void_t<typename T::hash_policy>> {
+    typedef typename T::hash_policy type;
 };
 
 template <typename T, typename FindKey, 
@@ -370,6 +562,8 @@ public:
     size_t num_buckets_for_reserve(size_t num_elements) const {
         return static_cast<size_t>(std::ceil(num_elements / std::min(0.5, static_cast<double>(_max_load_factor))));
     }
+
+    // line 661
 
     void rehash_for_other_container(const faster_hashtable& other) {
         rehash(num_buckets_for_reserve(other.size()), other.bucket_count());
@@ -804,68 +998,6 @@ struct fibonacci_hash_policy {
     }
 private:
     int8_t shift = 63;
-};
-
-inline size_t next_power_of_two(size_t i) { // TODO: ?
-    --i;
-    i |= i >> 1;
-    i |= i >> 2;
-    i |= i >> 4;
-    i |= i >> 8;
-    i |= i >> 16;
-    i |= i >> 32;
-    ++i;
-    return i;
-}
-
-inline int8_t log2(size_t value) { // TODO:?
-    static constexpr int8_t table[64] = {
-        63,  0, 58,  1, 59, 47, 53,  2,
-        60, 39, 48, 27, 54, 33, 42,  3,
-        61, 51, 37, 40, 49, 18, 28, 20,
-        55, 30, 34, 11, 43, 14, 22,  4,
-        62, 57, 46, 52, 38, 26, 32, 41,
-        50, 36, 17, 19, 29, 10, 13, 21,
-        56, 45, 25, 31, 35, 16,  9, 12,
-        44, 24, 15,  8, 23,  7,  6,  5
-    };
-    value |= value >> 1;
-    value |= value >> 2;
-    value |= value >> 4;
-    value |= value >> 8;
-    value |= value >> 16;
-    value |= value >> 32;
-    return table[((value - (value >> 1)) * 0x07EDD5E59A4E28C2) >> 58];
-}
-
-template<typename T, bool>
-struct AssignIfTrue {
-    void operator()(T& lhs, const T& rhs) {
-        lhs = rhs;
-    }
-
-    void operator()(T& lhs, T&& rhs) {
-        lhs = std::move(rhs);
-    }
-};
-
-template<typename T>
-struct AssignIfTrue<T, false> {
-    void operator()(T &, const T &) {}
-    void operator()(T &, T &&) {}
-};
-
-template<typename...> 
-using void_t = void;
-
-template<typename T, typename = void>
-struct HashPolicySelector {
-    typedef fibonacci_hash_policy type;
-};
-
-template<typename T>
-struct HashPolicySelector<T, void_t<typename T::hash_policy>> {
-    typedef typename T::hash_policy type;
 };
 
 
