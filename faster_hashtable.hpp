@@ -563,10 +563,123 @@ public:
         return static_cast<size_t>(std::ceil(num_elements / std::min(0.5, static_cast<double>(_max_load_factor))));
     }
 
-    // line 661
+    void reserve(size_t num_elements) {
+        size_t required_buckets = num_buckets_for_reserve(num_elements);
+        if (required_buckets > bucket_count()) {
+            rehash(required_buckets);
+        }
+    }
+
+    // the return value is a type that can be converted to an iterator
+    // the reason for doing this is that it's not free to find the
+    // iterator pointing at the next element. if you care about the
+    // next iterator, turn the return value into an iterator
+    convertible_to_iterator erase(const_iterator to_erase) {
+        EntryPointer current = to_erase.current;
+        current->destroy_value();
+        --_num_elements;
+        for (EntryPointer next = current + ptrdiff_t(1); !next->is_at_desired_position(); ++current, ++next) {
+            current->emplace(next->distance_from_desired - 1, std::move(next->value));
+            next->destroy_value();
+        }
+        return { to_erase.current };
+    }
+
+    iterator erase(const_iterator begin_it, const_iterator end_it)
+    {
+        if (begin_it == end_it) {
+            return { begin_it.current };
+        }
+            
+        for (EntryPointer it = begin_it.current, end = end_it.current; it != end; ++it) {
+            if (it->has_value()) {
+                it->destroy_value();
+                --_num_elements;
+            }
+        }
+        if (end_it == this->end()) {
+            return this->end();
+        }
+            
+        ptrdiff_t num_to_move = std::min(static_cast<ptrdiff_t>(end_it.current->distance_from_desired), end_it.current - begin_it.current);
+        EntryPointer to_return = end_it.current - num_to_move;
+        for (EntryPointer it = end_it.current; !it->is_at_desired_position();) {
+            EntryPointer target = it - num_to_move;
+            target->emplace(it->distance_from_desired - num_to_move, std::move(it->value));
+            it->destroy_value();
+            ++it;
+            num_to_move = std::min(static_cast<ptrdiff_t>(it->distance_from_desired), num_to_move);
+        }
+        return { to_return };
+    }
+
+    size_t erase(const FindKey& key) {
+        auto found = find(key);
+        if (found == end()) {
+            return 0;
+        } else {
+            erase(found);
+            return 1; // why not return bool
+        }
+    }
+
+    void shrink_to_fit() {
+        rehash_for_other_container(*this);
+    }
 
     void rehash_for_other_container(const faster_hashtable& other) {
         rehash(num_buckets_for_reserve(other.size()), other.bucket_count());
+    }
+
+    void swap(faster_hashtable& other) {
+        using std::swap;
+        swap_pointers(other);
+        swap(static_cast<ArgumentHash&>(*this), static_cast<ArgumentHash&>(other));
+        swap(static_cast<ArgumentEqual&>(*this), static_cast<ArgumentEqual&>(other));
+        if (AllocatorTraits::propagate_on_container_swap::value) {
+            swap(static_cast<EntryAlloc&>(*this), static_cast<EntryAlloc&>(other));
+        }  
+    }
+
+    size_t size() const {
+        return _num_elements;
+    }
+
+    size_t max_size() const {
+        return (AllocatorTraits::max_size(*this)) / sizeof(Entry);
+    }
+    
+    size_type max_bucket_count() const {
+        return (AllocatorTraits::max_size(*this) - min_lookups) / sizeof(Entry);
+    }
+
+    size_t bucket(const FindKey & key) const {
+        return hash_policy.index_for_hash(hash_object(key), num_slots_minus_one);
+    }
+
+    size_t bucket_count() const {
+        return _num_slots_minus_one ? _num_slots_minus_one + 1 : 0;
+    }
+
+    float load_factor() const {
+        size_t buckets = bucket_count();
+        if (buckets) {
+            return static_cast<float>(_num_elements) / bucket_count();
+        } else {
+            return 0;
+        }     
+    }
+
+    void max_load_factor(float value) {
+        _max_load_factor = value;
+    }
+
+    float max_load_factor() const {
+        return _max_load_factor;
+    }
+
+    bool empty() const {
+        return _num_elements == 0;
     }
 
     template<typename Key, typename ...Args>
@@ -616,10 +729,6 @@ public:
         _hash_policy.reset();
         _max_lookups = ddaof::min_lookups - 1;
         return;
-    }
-
-    size_t bucket_count() const {
-        return _num_slots_minus_one ? _num_slots_minus_one + 1 : 0;
     }
 
 private:
