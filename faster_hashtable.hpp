@@ -27,6 +27,12 @@
 #include <utility>
 #include <stdint.h>
 
+#ifdef _MSC_VER
+#define SKA_NOINLINE(...) __declspec(noinline) __VA_ARGS__
+#else
+#define SKA_NOINLINE(...) __VA_ARGS__ __attribute__((noinline))
+#endif
+
 // using faster_hashtable = sherwood_v3_table;
 
 namespace ddaof {
@@ -558,11 +564,6 @@ public:
         deallocate_data(new_buckets, num_buckets, old_max_lookups);
     }
 
-    // get the max of the buckets to reserve
-    size_t num_buckets_for_reserve(size_t num_elements) const {
-        return static_cast<size_t>(std::ceil(num_elements / std::min(0.5, static_cast<double>(_max_load_factor))));
-    }
-
     void reserve(size_t num_elements) {
         size_t required_buckets = num_buckets_for_reserve(num_elements);
         if (required_buckets > bucket_count()) {
@@ -625,10 +626,6 @@ public:
 
     void shrink_to_fit() {
         rehash_for_other_container(*this);
-    }
-
-    void rehash_for_other_container(const faster_hashtable& other) {
-        rehash(num_buckets_for_reserve(other.size()), other.bucket_count());
     }
 
     void swap(faster_hashtable& other) {
@@ -722,14 +719,7 @@ public:
         return emplace(std::move(value)).first;
     }
 
-    void reset_to_empty_state() {
-        deallocate_data(_entries, _num_slots_minus_one, _max_lookups);
-        _entries = Entry::empty_default_table();
-        _num_slots_minus_one = 0;
-        _hash_policy.reset();
-        _max_lookups = ddaof::min_lookups - 1;
-        return;
-    }
+    
 
 private:
     EntryPointer _entries = Entry::empty_default_table();
@@ -744,11 +734,120 @@ private:
         return std::max(ddaof::min_lookups, desired);
     }
 
+    // get the max of the buckets to reserve
+    size_t num_buckets_for_reserve(size_t num_elements) const {
+        return static_cast<size_t>(std::ceil(num_elements / std::min(0.5, static_cast<double>(_max_load_factor))));
+    }
+
+    void rehash_for_other_container(const faster_hashtable& other) {
+        rehash(std::min(num_buckets_for_reserve(other.size()), other.bucket_count()));
+    }
+
+    // swap all
+    void swap_pointers(faster_hashtable& other) {
+        using std::swap;
+        swap(_hash_policy, other.hash_policy);
+        swap(_entries, other.entries);
+        swap(_num_slots_minus_one, other.num_slots_minus_one);
+        swap(_num_elements, other.num_elements);
+        swap(_max_lookups, other.max_lookups);
+        swap(_max_load_factor, other._max_load_factor);
+    }
+
+    // TODO: whats the SKA_NOINLINE mean?
+    template<typename Key, typename... Args>
+    SKA_NOINLINE(std::pair<iterator, bool>) 
+    emplace_new_key(int8_t distance_from_desired, EntryPointer current_entry, Key&& key, Args&&... args) {
+        using std::swap;
+        if (_num_slots_minus_one == 0 
+                || distance_from_desired == _max_lookups 
+                || _num_elements + 1 > (_num_slots_minus_one + 1) * static_cast<double>(_max_load_factor)) {
+            grow();
+            return emplace(std::forward<key>, std::forward<Args>(args)...);
+        } else if (current_entry->is_empty()) {
+            current_entry->emplace(distance_from_desired, std::forward<Key>(key), std::forward<Args>(args)...);
+            ++_num_elements;
+            return { { current_entry }, true }; // TODO: make_pair
+        } else {/*TODO*/}
+
+        value_type to_insert(std::forward<Key>(key), std::forward<Args>(args)...); // TODO: ??
+        swap(distance_from_desired, current_entry->distance_from_desired);
+        swap(to_insert, current_entry->value);
+        iterator result = { current_entry };
+        for (++distance_from_desired, ++current_entry;; ++current_entry) {
+            if (current_entry->is_empty()) {
+                current_entry->emplace(distance_from_desired, std::move(to_insert));
+                ++_num_elements;
+                return { result, true };
+            } else if (current_entry->distance_from_desired < distance_from_desired) {
+                swap(distance_from_desired, current_entry->distance_from_desired);
+                swap(to_insert, current_entry->value);
+                ++distance_from_desired;
+            } else {
+                ++distance_from_desired;
+                if (distance_from_desired == _max_lookups)
+                {
+                    swap(to_insert, result.current->value);
+                    grow();
+                    return emplace(std::move(to_insert));
+                }
+            }
+        }
+    }
+
+    void grow() { 
+        rehash(std::max(size_t(4), 2 * bucket_count()));
+    }
+
     void deallocate_data(EntryPointer begin, size_t num_slots_minus_one, int8_t max_lookups) {
         if (begin != Entry::empty_default_table()) {
             AllocatorTraits::deallocate(*this, begin, num_slots_minus_one + max_lookups + 1);
         }
     }
+
+    void reset_to_empty_state() {
+        deallocate_data(_entries, _num_slots_minus_one, _max_lookups);
+        _entries = Entry::empty_default_table();
+        _num_slots_minus_one = 0;
+        _hash_policy.reset();
+        _max_lookups = ddaof::min_lookups - 1;
+        return;
+    }
+
+    template<typename U>
+    size_t hash_object(const U& key) {
+        return static_cast<Hasher &>(*this)(key);
+    }
+
+    template<typename U>
+    size_t hash_object(const U& key) const {
+        return static_cast<const Hasher&>(*this)(key);
+    }
+
+    template<typename L, typename R>
+    bool compares_equal(const L& lhs, const R& rhs) {
+        return static_cast<Equal&>(*this)(lhs, rhs);
+    }
+
+    struct convertible_to_iterator
+    {
+        EntryPointer it;
+
+        operator iterator() {
+            if (it->has_value()) {
+                return { it };
+            } else {
+                return ++iterator{it};
+            }   
+        }
+        operator const_iterator() {
+            if (it->has_value()) {
+                return { it };
+            } else {
+                return ++const_iterator{it};
+            }
+        }
+    };
 
 };
 
@@ -1109,5 +1208,184 @@ private:
     int8_t shift = 63;
 };
 
+template<typename K, typename V, typename H = std::hash<K>, typename E = std::equal_to<K>, typename A = std::allocator<std::pair<K, V> > >
+class flat_hash_map
+        : public detailv3::sherwood_v3_table <std::pair<K, V>,
+            K,
+            H,
+            detailv3::KeyOrValueHasher<K, std::pair<K, V>, H>,
+            E,
+            detailv3::KeyOrValueEquality<K, std::pair<K, V>, E>,
+            A,
+            typename std::allocator_traits<A>::template rebind_alloc<detailv3::sherwood_v3_entry<std::pair<K, V>>>> {
+    using Table = detailv3::sherwood_v3_table
+    <
+        std::pair<K, V>,
+        K,
+        H,
+        detailv3::KeyOrValueHasher<K, std::pair<K, V>, H>,
+        E,
+        detailv3::KeyOrValueEquality<K, std::pair<K, V>, E>,
+        A,
+        typename std::allocator_traits<A>::template rebind_alloc<detailv3::sherwood_v3_entry<std::pair<K, V>>>
+    >;
+public:
+
+    using key_type = K;
+    using mapped_type = V;
+
+    using Table::Table;
+    flat_hash_map() {}
+
+    inline V & operator[](const K& key) {
+        return emplace(key, convertible_to_value()).first->second;
+    }
+
+    inline V & operator[](K&& key) {
+        return emplace(std::move(key), convertible_to_value()).first->second;
+    }
+
+    V& at(const K & key) {
+        auto found = this->find(key);
+        if (found == this->end())
+            throw std::out_of_range("Argument passed to at() was not in the map.");
+        return found->second;
+    }
+
+    const V & at(const K& key) const {
+        auto found = this->find(key);
+        if (found == this->end())
+            throw std::out_of_range("Argument passed to at() was not in the map.");
+        return found->second;
+    }
+
+    using Table::emplace;
+    std::pair<typename Table::iterator, bool> emplace() {
+        return emplace(key_type(), convertible_to_value());
+    }
+
+    template<typename M>
+    std::pair<typename Table::iterator, bool> insert_or_assign(const key_type& key, M&& m) {
+        auto emplace_result = emplace(key, std::forward<M>(m));
+        if (!emplace_result.second)
+            emplace_result.first->second = std::forward<M>(m);
+        return emplace_result;
+    }
+
+    template<typename M>
+    std::pair<typename Table::iterator, bool> insert_or_assign(key_type&& key, M && m) {
+        auto emplace_result = emplace(std::move(key), std::forward<M>(m));
+        if (!emplace_result.second)
+            emplace_result.first->second = std::forward<M>(m);
+        return emplace_result;
+    }
+    template<typename M>
+    typename Table::iterator insert_or_assign(typename Table::const_iterator, const key_type& key, M&& m)
+    {
+        return insert_or_assign(key, std::forward<M>(m)).first;
+    }
+
+    template<typename M>
+    typename Table::iterator insert_or_assign(typename Table::const_iterator, key_type&& key, M&& m) {
+        return insert_or_assign(std::move(key), std::forward<M>(m)).first;
+    }
+
+    friend bool operator==(const flat_hash_map& lhs, const flat_hash_map& rhs) {
+        if (lhs.size() != rhs.size())
+            return false;
+        for (const typename Table::value_type& value : lhs) {
+            auto found = rhs.find(value.first);
+            if (found == rhs.end())
+                return false;
+            else if (value.second != found->second)
+                return false;
+        }
+        return true;
+    }
+
+    friend bool operator!=(const flat_hash_map & lhs, const flat_hash_map & rhs) {
+        return !(lhs == rhs);
+    }
+
+private:
+    struct convertible_to_value {
+        operator V() const {
+            return V();
+        }
+    };
+};
+
+template<typename T, typename H = std::hash<T>, typename E = std::equal_to<T>, typename A = std::allocator<T> >
+class flat_hash_set
+        : public detailv3::sherwood_v3_table
+        <
+            T,
+            T,
+            H,
+            detailv3::functor_storage<size_t, H>,
+            E,
+            detailv3::functor_storage<bool, E>,
+            A,
+            typename std::allocator_traits<A>::template rebind_alloc<detailv3::sherwood_v3_entry<T>>
+        >
+{
+    using Table = detailv3::sherwood_v3_table
+    <
+        T,
+        T,
+        H,
+        detailv3::functor_storage<size_t, H>,
+        E,
+        detailv3::functor_storage<bool, E>,
+        A,
+        typename std::allocator_traits<A>::template rebind_alloc<detailv3::sherwood_v3_entry<T>>
+    >;
+public:
+
+    using key_type = T;
+
+    using Table::Table;
+    flat_hash_set()
+    {
+    }
+
+    template<typename... Args>
+    std::pair<typename Table::iterator, bool> emplace(Args &&... args)
+    {
+        return Table::emplace(T(std::forward<Args>(args)...));
+    }
+    std::pair<typename Table::iterator, bool> emplace(const key_type & arg)
+    {
+        return Table::emplace(arg);
+    }
+    std::pair<typename Table::iterator, bool> emplace(key_type & arg)
+    {
+        return Table::emplace(arg);
+    }
+    std::pair<typename Table::iterator, bool> emplace(const key_type && arg)
+    {
+        return Table::emplace(std::move(arg));
+    }
+    std::pair<typename Table::iterator, bool> emplace(key_type && arg)
+    {
+        return Table::emplace(std::move(arg));
+    }
+
+    friend bool operator==(const flat_hash_set & lhs, const flat_hash_set & rhs)
+    {
+        if (lhs.size() != rhs.size())
+            return false;
+        for (const T & value : lhs)
+        {
+            if (rhs.find(value) == rhs.end())
+                return false;
+        }
+        return true;
+    }
+    friend bool operator!=(const flat_hash_set & lhs, const flat_hash_set & rhs)
+    {
+        return !(lhs == rhs);
+    }
+};
 
 } // end namespace ddaof
