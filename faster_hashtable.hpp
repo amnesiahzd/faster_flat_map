@@ -28,17 +28,14 @@
 #include <stdint.h>
 
 #ifdef _MSC_VER
-#define SKA_NOINLINE(...) __declspec(noinline) __VA_ARGS__
+#define DDAOF_NOINLINE(...) __declspec(noinline) __VA_ARGS__
 #else
-#define SKA_NOINLINE(...) __VA_ARGS__ __attribute__((noinline))
+#define DDAOF_NOINLINE(...) __VA_ARGS__ __attribute__((noinline))
 #endif
-
-// using faster_hashtable = sherwood_v3_table;
 
 namespace ddaof {
 
 static constexpr int8_t min_lookups = 4;
-
 
 /**
  * This code defines a template class functor_storage that serves as a wrapper for a callable object (Functor)
@@ -47,7 +44,7 @@ static constexpr int8_t min_lookups = 4;
  * The constructor facilitates the initialization of the functor_storage object with a provided Functor. 
  * This design enables a unified interface for calling different callable objects while maintaining the benefits of type safety and flexibility.
 */
-template<typename Result, typename Functor>
+template<typename Result, typename Functor> // AmnesiaHzd: its a function wrapper
 struct functor_storage : Functor {
     functor_storage() = default;
     functor_storage(const Functor& functor)
@@ -64,7 +61,7 @@ struct functor_storage : Functor {
     }
 };
 
-template<typename Result, typename... Args> // TODO: get clear
+template<typename Result, typename... Args> // AmnesiaHzd pointer 特化
 struct functor_storage<Result, Result (*)(Args...)> {
     using (*function_ptr)(Args...) = Result;
     function_ptr function;
@@ -85,18 +82,18 @@ struct functor_storage<Result, Result (*)(Args...)> {
 };
 
 template<typename key_type, typename value_type, typename hasher>
-struct KeyOrValueHasher : functor_storage<size_t, hasher> {
+struct KeyOrValueHasher : functor_storage<size_t, hasher> { // Encapsulate hash function
     using hasher_storage = functor_storage<size_t, hasher>
 
     KeyOrValueHasher() = default;
-    KeyOrValueHasher(const hasher & hash)
+    KeyOrValueHasher(const hasher& hash)
             : hasher_storage(hash) {}
 
     size_t operator()(const key_type& key) {
         return static_cast<hasher_storage&>(*this)(key);
     }
 
-    size_t operator()(const key_type& key) const {
+    size_t operator()(const key_type& key) const { // const 是否应该是const *this
         return static_cast<const hasher_storage&>(*this)(key);
     }
 
@@ -754,9 +751,9 @@ private:
         swap(_max_load_factor, other._max_load_factor);
     }
 
-    // TODO: whats the SKA_NOINLINE mean?
+    // TODO: whats the DDAOF_NOINLINE mean?
     template<typename Key, typename... Args>
-    SKA_NOINLINE(std::pair<iterator, bool>) 
+    DDAOF_NOINLINE(std::pair<iterator, bool>) 
     emplace_new_key(int8_t distance_from_desired, EntryPointer current_entry, Key&& key, Args&&... args) {
         using std::swap;
         if (_num_slots_minus_one == 0 
