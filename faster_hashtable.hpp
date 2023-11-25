@@ -25,6 +25,7 @@
 #include <math.h>
 #include <memory>
 #include <utility>
+#include <stdexcept>
 #include <stdint.h>
 
 #ifdef _MSC_VER
@@ -36,6 +37,10 @@
 namespace ddaof {
 
 static constexpr int8_t min_lookups = 4;
+// pre annouce
+struct fibonacci_hash_policy;
+struct power_of_two_hash_policy;
+struct prime_number_hash_policy;
 
 /**
  * This code defines a template class functor_storage that serves as a wrapper for a callable object (Functor)
@@ -63,7 +68,8 @@ struct functor_storage : Functor {
 
 template<typename Result, typename... Args> // AmnesiaHzd pointer 特化
 struct functor_storage<Result, Result (*)(Args...)> {
-    using (*function_ptr)(Args...) = Result;
+    typedef Result (*function_ptr)(Args...);
+    // why cannt use using (*function_ptr)(Args...) = Result?
     function_ptr function;
     functor_storage(function_ptr function)
             : function(function) {}
@@ -83,8 +89,9 @@ struct functor_storage<Result, Result (*)(Args...)> {
 
 template<typename key_type, typename value_type, typename hasher>
 struct KeyOrValueHasher : functor_storage<size_t, hasher> { // Encapsulate hash function
-    using hasher_storage = functor_storage<size_t, hasher>
-
+    typedef functor_storage<size_t, hasher> hasher_storage;
+    // why cant use hasher_storage = functor_storage<size_t, hasher>
+    
     KeyOrValueHasher() = default;
     KeyOrValueHasher(const hasher& hash)
             : hasher_storage(hash) {}
@@ -118,8 +125,8 @@ struct KeyOrValueHasher : functor_storage<size_t, hasher> { // Encapsulate hash 
 
 template<typename key_type, typename value_type, typename key_equal>
 struct KeyOrValueEquality : functor_storage<bool, key_equal> {
-    using equality_storage = functor_storage<bool, key_equal>
-
+    typedef functor_storage<bool, key_equal> equality_storage;
+    // why cant use equality_storage = functor_storage<bool, key_equal>
     KeyOrValueEquality() = default;
     KeyOrValueEquality(const key_equal& equality)
             : equality_storage(equality) {}
@@ -204,7 +211,7 @@ struct faster_table_entry {
 
     int8_t _distance_from_desired = -1;
     static constexpr int8_t _special_end_value = 0;
-    union { T _value }; // why?
+    union { T _value; }; // why?
 };
 
 inline int8_t log2(size_t value) {
@@ -298,10 +305,6 @@ public:
     using const_reference = const T&;
     using pointer = T*;
     using const_pointer = const T*;
-
-    using iterator = templated_iterator<value_type>;
-    using const_iterator = templated_iterator<const value_type>;
-
     // all constructor
 
     faster_hashtable() {}
@@ -400,7 +403,7 @@ public:
         swap_pointers(other);
     }
 
-    faster_hashtable& operator=(const faster_hashtable& other) { 
+    faster_hashtable& operator=(faster_hashtable& other) { 
         if (this == std::addressof(other)) {
             return *this;
         }
@@ -438,7 +441,7 @@ public:
         deallocate_data(_entries, _num_slots_minus_one, _max_lookups);
     }
 
-    faster_hashtable& operator=(const faster_hashtable& other) { // TODO: clear why is different from copy=
+    faster_hashtable& operator=(const faster_hashtable& other) noexcept { // TODO: clear why is different from copy=
         if (this == std::addressof(other)) {
             return *this;
         } else if (AllocatorTraits::propagate_on_container_move_assignment::value) { // TODO
@@ -463,6 +466,56 @@ public:
         static_cast<Equal&>(*this) = std::move(other);
         return *this;
     }
+
+    template<typename ValueType>
+    struct templated_iterator {
+        templated_iterator() = default;
+        templated_iterator(EntryPointer current)
+                : current(current) {}
+        EntryPointer current = EntryPointer();
+
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = ValueType;
+        using difference_type = ptrdiff_t;
+        using pointer = ValueType*;
+        using reference = ValueType&;
+
+        friend bool operator==(const templated_iterator& lhs, const templated_iterator& rhs) {
+            return lhs.current == rhs.current;
+        }
+        friend bool operator!=(const templated_iterator& lhs, const templated_iterator& rhs) {
+            return !(lhs == rhs);
+        }
+
+        templated_iterator & operator++() {
+            do {
+                ++current;
+            }
+            while(current->is_empty());
+            return *this;
+        }
+
+        templated_iterator operator++(int) {
+            templated_iterator copy(*this);
+            ++*this;
+            return copy;
+        }
+
+        ValueType & operator*() const {
+            return current->value;
+        }
+
+        ValueType * operator->() const {
+            return std::addressof(current->value);
+        }
+
+        operator templated_iterator<const value_type>() const {
+            return { current };
+        }
+    };
+
+    using iterator = templated_iterator<value_type>;
+    using const_iterator = templated_iterator<const value_type>;
 
     iterator begin() {
         for (EntryPointer it = _entries; ; ++it) {
@@ -614,6 +667,15 @@ public:
         return { to_return };
     }
 
+    void clear() {
+        for (EntryPointer it = _entries, end = it + static_cast<ptrdiff_t>(_num_slots_minus_one + _max_lookups); it != end; ++it) {
+            if (it->has_value()) {
+                it->destroy_value();
+            }
+        }
+        _num_elements = 0;
+    }
+
     size_t erase(const FindKey& key) {
         auto found = find(key);
         if (found == end()) {
@@ -651,7 +713,7 @@ public:
     }
 
     size_t bucket(const FindKey & key) const {
-        return hash_policy.index_for_hash(hash_object(key), num_slots_minus_one);
+        return _hash_policy.index_for_hash(hash_object(key), _num_slots_minus_one);
     }
 
     size_t bucket_count() const {
@@ -680,7 +742,7 @@ public:
     }
 
     template<typename Key, typename ...Args>
-    std::pair<iterator, bool> emplace(Key&& key, Args&& ..args) {
+    std::pair<iterator, bool> emplace(Key&& key, Args&& ...args) {
         // step1: get the index of new key
         size_t index = _hash_policy.index_for_hash(hash_object(key), _num_slots_minus_one);
         
@@ -1210,24 +1272,25 @@ private:
 
 template<typename K, typename V, typename H = std::hash<K>, typename E = std::equal_to<K>, typename A = std::allocator<std::pair<K, V> > >
 class flat_hash_map
-        : public detailv3::sherwood_v3_table <std::pair<K, V>,
+        : public ddaof::faster_hashtable <
+            std::pair<K, V>,
             K,
             H,
-            detailv3::KeyOrValueHasher<K, std::pair<K, V>, H>,
+            ddaof::KeyOrValueHasher<K, std::pair<K, V>, H>,
             E,
-            detailv3::KeyOrValueEquality<K, std::pair<K, V>, E>,
+            ddaof::KeyOrValueEquality<K, std::pair<K, V>, E>,
             A,
-            typename std::allocator_traits<A>::template rebind_alloc<detailv3::faster_table_entry<std::pair<K, V>>>> {
-    using Table = detailv3::sherwood_v3_table
+            typename std::allocator_traits<A>::template rebind_alloc<ddaof::faster_table_entry<std::pair<K, V>>>> {
+    using Table = ddaof::faster_hashtable
     <
         std::pair<K, V>,
         K,
         H,
-        detailv3::KeyOrValueHasher<K, std::pair<K, V>, H>,
+        ddaof::KeyOrValueHasher<K, std::pair<K, V>, H>,
         E,
-        detailv3::KeyOrValueEquality<K, std::pair<K, V>, E>,
+        ddaof::KeyOrValueEquality<K, std::pair<K, V>, E>,
         A,
-        typename std::allocator_traits<A>::template rebind_alloc<detailv3::faster_table_entry<std::pair<K, V>>>
+        typename std::allocator_traits<A>::template rebind_alloc<ddaof::faster_table_entry<std::pair<K, V>>>
     >;
 public:
 
@@ -1317,28 +1380,28 @@ private:
 
 template<typename T, typename H = std::hash<T>, typename E = std::equal_to<T>, typename A = std::allocator<T> >
 class flat_hash_set
-        : public detailv3::sherwood_v3_table
+        : public ddaof::faster_hashtable
         <
             T,
             T,
             H,
-            detailv3::functor_storage<size_t, H>,
+            ddaof::functor_storage<size_t, H>,
             E,
-            detailv3::functor_storage<bool, E>,
+            ddaof::functor_storage<bool, E>,
             A,
-            typename std::allocator_traits<A>::template rebind_alloc<detailv3::faster_table_entry<T>>
+            typename std::allocator_traits<A>::template rebind_alloc<ddaof::faster_table_entry<T>>
         >
 {
-    using Table = detailv3::sherwood_v3_table
+    using Table = ddaof::faster_hashtable
     <
         T,
         T,
         H,
-        detailv3::functor_storage<size_t, H>,
+        ddaof::functor_storage<size_t, H>,
         E,
-        detailv3::functor_storage<bool, E>,
+        ddaof::functor_storage<bool, E>,
         A,
-        typename std::allocator_traits<A>::template rebind_alloc<detailv3::faster_table_entry<T>>
+        typename std::allocator_traits<A>::template rebind_alloc<ddaof::faster_table_entry<T>>
     >;
 public:
 
