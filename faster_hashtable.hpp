@@ -166,15 +166,16 @@ struct KeyOrValueEquality : functor_storage<bool, key_equal> {
     }
 };
 
+// The entry of the hash table is defined, and the core value is _distance_from_desired
 template<typename T>
-struct sherwood_v3_entry {
-    sherwood_v3_entry() {}
-    sherwood_v3_entry(int8_t distance_from_desired)
+struct faster_table_entry {
+    faster_table_entry() {}
+    faster_table_entry(int8_t distance_from_desired)
             :_distance_from_desired(distance_from_desired) {}
-    ~sherwood_v3_entry() {}
+    ~faster_table_entry() {}
 
-    static sherwood_v3_entry* empty_default_table() {
-        static sherwood_v3_entry result[min_lookups] = { {}, {}, {}, {_special_end_value} }; // why?
+    static faster_table_entry* empty_default_table() {
+        static faster_table_entry result[min_lookups] = { {}, {}, {}, {_special_end_value} }; // why?
         return result;
     }
 
@@ -192,21 +193,21 @@ struct sherwood_v3_entry {
 
     template<typename... Args>
     void emplace(int8_t distance, Args&& ...args) { 
-        new (std::addressof(value)) T(std::forward<Args>(args)...);
+        new (std::addressof(_value)) T(std::forward<Args>(args)...); // AmnesiaHzd: new object at this position
         _distance_from_desired = distance;
     }
 
     void destroy_value() {
-        value.~T(); // TODO: how about to add a judge function to judge if it had a destroy function
+        _value.~T(); // TODO: how about to add a judge function to judge if it had a destroy function
         _distance_from_desired = -1;
     }
 
     int8_t _distance_from_desired = -1;
     static constexpr int8_t _special_end_value = 0;
-    union { T value }; // why?
+    union { T _value }; // why?
 };
 
-inline int8_t log2(size_t value) { // TODO:?
+inline int8_t log2(size_t value) {
     static constexpr int8_t table[64] = {
         63,  0, 58,  1, 59, 47, 53,  2,
         60, 39, 48, 27, 54, 33, 42,  3,
@@ -226,6 +227,7 @@ inline int8_t log2(size_t value) { // TODO:?
     return table[((value - (value >> 1)) * 0x07EDD5E59A4E28C2) >> 58];
 }
 
+// let the value of rhs copy to lhs
 template<typename T, bool>
 struct AssignIfTrue {
     void operator()(T& lhs, const T& rhs) {
@@ -237,13 +239,14 @@ struct AssignIfTrue {
     }
 };
 
+// When the template parameter is false, do nothing
 template<typename T>
 struct AssignIfTrue<T, false> {
     void operator()(T &, const T &) {}
     void operator()(T &, T &&) {}
 };
 
-inline size_t next_power_of_two(size_t i) { // TODO: ?
+inline size_t next_power_of_two(size_t i) {
     --i;
     i |= i >> 1;
     i |= i >> 2;
@@ -275,7 +278,7 @@ template <typename T, typename FindKey,
 // 1.its a has-a relationship, 
 // 2.all the member function and member factor from father class would be hide at this class 
 class faster_hashtable : private EntryAlloc, private Hasher, private Equal { 
-    using Entry = sherwood_v3_entry<T>; // TODO: not done
+    using Entry = faster_table_entry<T>; // TODO: not done
     // std::allocator_traits allows you to use allocator function 
     // even current now u dont know the allocate details
     using AllocatorTraits = std::allocator_traits<EntryAlloc>; 
@@ -1214,7 +1217,7 @@ class flat_hash_map
             E,
             detailv3::KeyOrValueEquality<K, std::pair<K, V>, E>,
             A,
-            typename std::allocator_traits<A>::template rebind_alloc<detailv3::sherwood_v3_entry<std::pair<K, V>>>> {
+            typename std::allocator_traits<A>::template rebind_alloc<detailv3::faster_table_entry<std::pair<K, V>>>> {
     using Table = detailv3::sherwood_v3_table
     <
         std::pair<K, V>,
@@ -1224,7 +1227,7 @@ class flat_hash_map
         E,
         detailv3::KeyOrValueEquality<K, std::pair<K, V>, E>,
         A,
-        typename std::allocator_traits<A>::template rebind_alloc<detailv3::sherwood_v3_entry<std::pair<K, V>>>
+        typename std::allocator_traits<A>::template rebind_alloc<detailv3::faster_table_entry<std::pair<K, V>>>
     >;
 public:
 
@@ -1323,7 +1326,7 @@ class flat_hash_set
             E,
             detailv3::functor_storage<bool, E>,
             A,
-            typename std::allocator_traits<A>::template rebind_alloc<detailv3::sherwood_v3_entry<T>>
+            typename std::allocator_traits<A>::template rebind_alloc<detailv3::faster_table_entry<T>>
         >
 {
     using Table = detailv3::sherwood_v3_table
@@ -1335,7 +1338,7 @@ class flat_hash_set
         E,
         detailv3::functor_storage<bool, E>,
         A,
-        typename std::allocator_traits<A>::template rebind_alloc<detailv3::sherwood_v3_entry<T>>
+        typename std::allocator_traits<A>::template rebind_alloc<detailv3::faster_table_entry<T>>
     >;
 public:
 
