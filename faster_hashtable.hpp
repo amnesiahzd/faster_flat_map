@@ -279,18 +279,18 @@ struct HashPolicySelector<T, void_t<typename T::hash_policy>> {
 };
 
 template <typename T, typename FindKey, 
-          typename ArgumentHash, typename Hasher,
+          typename ArgumentHash, typename Hasher, // AmnesiaHzd: use ArgumentHash to init Hasher
           typename ArgumentEqual, typename Equal,
           typename ArgumentAlloc, typename EntryAlloc>
 // 1.its a has-a relationship, 
 // 2.all the member function and member factor from father class would be hide at this class 
 class faster_hashtable : private EntryAlloc, private Hasher, private Equal { 
-    using Entry = faster_table_entry<T>; // TODO: not done
+    using Entry = faster_table_entry<T>;
     // std::allocator_traits allows you to use allocator function 
     // even current now u dont know the allocate details
     using AllocatorTraits = std::allocator_traits<EntryAlloc>; 
     using EntryPointer = typename AllocatorTraits::pointer;
-    struct convertible_to_iterator; // TODO: not done
+    struct convertible_to_iterator;
 
 public:
     using value_type = T;
@@ -317,7 +317,7 @@ public:
         // use alloc/hash/equal to init base Class EntryAlloc/Hasher/Equal
         rehash(bucket_count);
     }
-
+    // line here
     faster_hashtable(size_type bucket_count, const ArgumentAlloc& alloc)
             : faster_hashtable(bucket_count, ArgumentHash(), ArgumentEqual(), alloc) {}
 
@@ -781,8 +781,6 @@ public:
         return emplace(std::move(value)).first;
     }
 
-    
-
 private:
     EntryPointer _entries = Entry::empty_default_table();
     size_t _num_slots_minus_one = 0;
@@ -891,8 +889,7 @@ private:
         return static_cast<Equal&>(*this)(lhs, rhs);
     }
 
-    struct convertible_to_iterator
-    {
+    struct convertible_to_iterator {
         EntryPointer it;
 
         operator iterator() {
