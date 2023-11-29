@@ -317,7 +317,7 @@ public:
         // use alloc/hash/equal to init base Class EntryAlloc/Hasher/Equal
         rehash(bucket_count);
     }
-    // line here
+
     faster_hashtable(size_type bucket_count, const ArgumentAlloc& alloc)
             : faster_hashtable(bucket_count, ArgumentHash(), ArgumentEqual(), alloc) {}
 
@@ -333,14 +333,14 @@ public:
                      const ArgumentEqual& equal = ArgumentEqual(), 
                      const ArgumentAlloc& alloc = ArgumentAlloc())
             : faster_hashtable(bucket_count, hash, equal, alloc) {
-        insert(first, last); // TODO: not done/consider emplace?
+        insert(first, last);
     }
 
     template<typename It>
     faster_hashtable(It first, It last, size_type bucket_count,
                      const ArgumentAlloc& alloc = ArgumentAlloc())
             : faster_hashtable(bucket_count, ArgumentHash(), ArgumentEqual(), alloc) {
-        insert(first, last); // TODO: can init caller user defualt params?
+        insert(first, last);
     }
 
     template<typename It>
@@ -351,7 +351,7 @@ public:
         insert(first, last);
     }
 
-    faster_hashtable(std::initializer_list<T>& initializer_list, // consider dangling reference
+    faster_hashtable(std::initializer_list<T>& initializer_list, // AmnesiaHzd: at origin codes, here isnt a ref
                      size_type bucket_count = 0, 
                      const ArgumentHash& hash = ArgumentHash(),
                      const ArgumentEqual& equal = ArgumentEqual(), 
@@ -381,7 +381,7 @@ public:
             : EntryAlloc(alloc), Hasher(other), Equal(other), _max_load_factor(other._max_load_factor) {
         rehash_for_other_container(other);
         try {
-            insert(other.begin(), other.end());
+            insert(other.begin(), other.end()); // AmnesiaHzd: but acctually there is no except in the insert
         } catch(...) {
             clear();
             deallocate_data(_entries, _num_slots_minus_one, _max_lookups);
@@ -390,7 +390,8 @@ public:
     }
 
     faster_hashtable(const faster_hashtable& other)
-            : faster_hashtable(other, AllocatorTraits::select_on_container_copy_construction(other.get_allocator())) {} // TODO
+    // AmnesiaHzd: Allows the allocator to choose between copying or reconstruction
+            : faster_hashtable(other, AllocatorTraits::select_on_container_copy_construction(other.get_allocator())) {}
 
     faster_hashtable(faster_hashtable&& other) noexcept 
             // why can use other to initial the temp
@@ -409,7 +410,7 @@ public:
         }
 
         clear();
-        if (AllocatorTraits::propagate_on_container_copy_assignment::value) { // TODO
+        if (AllocatorTraits::propagate_on_container_copy_assignment::value) {
             if (static_cast<EntryAlloc>(*this) != static_cast<const EntryAlloc&>(other)) {
                 reset_to_empty_state();
             }
@@ -440,7 +441,7 @@ public:
         clear();
         deallocate_data(_entries, _num_slots_minus_one, _max_lookups);
     }
-
+// line here
     faster_hashtable& operator=(const faster_hashtable& other) noexcept { // TODO: clear why is different from copy=
         if (this == std::addressof(other)) {
             return *this;
