@@ -488,7 +488,7 @@ public:
             return !(lhs == rhs);
         }
 
-        templated_iterator & operator++() {
+        templated_iterator& operator++() {
             do {
                 ++current;
             }
@@ -502,16 +502,16 @@ public:
             return copy;
         }
 
-        ValueType & operator*() const {
+        ValueType& operator*() const {
             return current->value;
         }
 
-        ValueType * operator->() const {
+        ValueType* operator->() const {
             return std::addressof(current->value);
         }
 
         operator templated_iterator<const value_type>() const {
-            return { current };
+            return { current }; // AmnesiaHzd: to ensure return a object, directly call a constructor
         }
     };
 
