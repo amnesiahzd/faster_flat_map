@@ -441,7 +441,7 @@ public:
         clear();
         deallocate_data(_entries, _num_slots_minus_one, _max_lookups);
     }
-// line here
+
     faster_hashtable& operator=(const faster_hashtable& other) noexcept { // TODO: clear why is different from copy=
         if (this == std::addressof(other)) {
             return *this;
@@ -511,7 +511,7 @@ public:
         }
 
         operator templated_iterator<const value_type>() const {
-            return { current }; // AmnesiaHzd: to ensure return a object, directly call a constructor
+            return { current }; // AmnesiaHzd: to ensure return a object, directly call a constructor, avoid a sub-cast
         }
     };
 
@@ -529,7 +529,7 @@ public:
     const_iterator begin() const {
         for (EntryPointer it = _entries; ; ++it) {
             if (it->has_value) {
-                return {it}; // TODO: why use this
+                return {it};
             }
         }
     }
@@ -640,8 +640,7 @@ public:
         return { to_erase.current };
     }
 
-    iterator erase(const_iterator begin_it, const_iterator end_it)
-    {
+    iterator erase(const_iterator begin_it, const_iterator end_it) {
         if (begin_it == end_it) {
             return { begin_it.current };
         }
@@ -786,7 +785,7 @@ private:
     EntryPointer _entries = Entry::empty_default_table();
     size_t _num_slots_minus_one = 0;
     typename HashPolicySelector<ArgumentHash>::type _hash_policy;
-    int8_t _max_lookups = ddaof::min_lookups - 1; // TODO: not done
+    int8_t _max_lookups = ddaof::min_lookups - 1;
     float _max_load_factor = 0.5f;
     size_t _num_elements = 0;
 
@@ -815,7 +814,6 @@ private:
         swap(_max_load_factor, other._max_load_factor);
     }
 
-    // TODO: whats the DDAOF_NOINLINE mean?
     template<typename Key, typename... Args>
     DDAOF_NOINLINE(std::pair<iterator, bool>) 
     emplace_new_key(int8_t distance_from_desired, EntryPointer current_entry, Key&& key, Args&&... args) {
@@ -824,17 +822,18 @@ private:
                 || distance_from_desired == _max_lookups 
                 || _num_elements + 1 > (_num_slots_minus_one + 1) * static_cast<double>(_max_load_factor)) {
             grow();
-            return emplace(std::forward<key>, std::forward<Args>(args)...);
+            return emplace(std::forward<Key>(key), std::forward<Args>(args)...);
         } else if (current_entry->is_empty()) {
             current_entry->emplace(distance_from_desired, std::forward<Key>(key), std::forward<Args>(args)...);
             ++_num_elements;
-            return { { current_entry }, true }; // TODO: make_pair
-        } else {/*TODO*/}
+            return std::make_pair(current_entry, true);
+        } else {/*Nothing need to do*/}
 
-        value_type to_insert(std::forward<Key>(key), std::forward<Args>(args)...); // TODO: ??
+        value_type to_insert(std::forward<Key>(key), std::forward<Args>(args)...);
         swap(distance_from_desired, current_entry->distance_from_desired);
         swap(to_insert, current_entry->value);
         iterator result = { current_entry };
+
         for (++distance_from_desired, ++current_entry;; ++current_entry) {
             if (current_entry->is_empty()) {
                 current_entry->emplace(distance_from_desired, std::move(to_insert));
@@ -846,8 +845,7 @@ private:
                 ++distance_from_desired;
             } else {
                 ++distance_from_desired;
-                if (distance_from_desired == _max_lookups)
-                {
+                if (distance_from_desired == _max_lookups) {
                     swap(to_insert, result.current->value);
                     grow();
                     return emplace(std::move(to_insert));
@@ -877,7 +875,7 @@ private:
 
     template<typename U>
     size_t hash_object(const U& key) {
-        return static_cast<Hasher &>(*this)(key);
+        return static_cast<Hasher&>(*this)(key);
     }
 
     template<typename U>
@@ -1225,11 +1223,11 @@ private:
 };
 
 struct power_of_two_hash_policy {
-    size_t index_for_hash(size_t hash, size_t num_slots_minus_one) const { // TODO: whats the meaning
+    size_t index_for_hash(size_t hash, size_t num_slots_minus_one) const {
         return hash & num_slots_minus_one;
     }
 
-    size_t keep_in_range(size_t index, size_t num_slots_minus_one) const { // TODO: whats the meaning
+    size_t keep_in_range(size_t index, size_t num_slots_minus_one) const {
         return index_for_hash(index, num_slots_minus_one);
     }
 
@@ -1244,15 +1242,15 @@ struct power_of_two_hash_policy {
 
 
 struct fibonacci_hash_policy {
-    size_t index_for_hash(size_t hash, size_t num_slots_minus_one) const { // TODO: whats the meaning
+    size_t index_for_hash(size_t hash, size_t num_slots_minus_one) const {
         return (11400714819323198485ull * hash) >> shift; // TODO:?
     }
 
-    size_t keep_in_range(size_t index, size_t num_slots_minus_one) const { // TODO: whats the meaning
+    size_t keep_in_range(size_t index, size_t num_slots_minus_one) const {
         return index & num_slots_minus_one; // TODO:?
     }
 
-    int8_t next_size_over(size_t& size) const { // why use pass-by-ref?
+    int8_t next_size_over(size_t& size) const {
         size = std::max(size_t(2), ddaof::next_power_of_two(size));
         return 64 - ddaof::log2(size);
     }
@@ -1313,7 +1311,7 @@ public:
         return found->second;
     }
 
-    const V & at(const K& key) const {
+    const V& at(const K& key) const {
         auto found = this->find(key);
         if (found == this->end())
             throw std::out_of_range("Argument passed to at() was not in the map.");
@@ -1334,7 +1332,7 @@ public:
     }
 
     template<typename M>
-    std::pair<typename Table::iterator, bool> insert_or_assign(key_type&& key, M && m) {
+    std::pair<typename Table::iterator, bool> insert_or_assign(key_type&& key, M&& m) {
         auto emplace_result = emplace(std::move(key), std::forward<M>(m));
         if (!emplace_result.second)
             emplace_result.first->second = std::forward<M>(m);
@@ -1364,7 +1362,7 @@ public:
         return true;
     }
 
-    friend bool operator!=(const flat_hash_map & lhs, const flat_hash_map & rhs) {
+    friend bool operator!=(const flat_hash_map& lhs, const flat_hash_map& rhs) {
         return !(lhs == rhs);
     }
 
@@ -1406,34 +1404,30 @@ public:
     using key_type = T;
 
     using Table::Table;
-    flat_hash_set()
-    {
-    }
+    flat_hash_set() {}
 
     template<typename... Args>
-    std::pair<typename Table::iterator, bool> emplace(Args &&... args)
-    {
+    std::pair<typename Table::iterator, bool> emplace(Args&&... args) {
         return Table::emplace(T(std::forward<Args>(args)...));
     }
-    std::pair<typename Table::iterator, bool> emplace(const key_type & arg)
-    {
+
+    std::pair<typename Table::iterator, bool> emplace(const key_type& arg) {
         return Table::emplace(arg);
     }
-    std::pair<typename Table::iterator, bool> emplace(key_type & arg)
-    {
+
+    std::pair<typename Table::iterator, bool> emplace(key_type& arg) {
         return Table::emplace(arg);
     }
-    std::pair<typename Table::iterator, bool> emplace(const key_type && arg)
-    {
-        return Table::emplace(std::move(arg));
-    }
-    std::pair<typename Table::iterator, bool> emplace(key_type && arg)
-    {
+
+    std::pair<typename Table::iterator, bool> emplace(const key_type&& arg) {
         return Table::emplace(std::move(arg));
     }
 
-    friend bool operator==(const flat_hash_set & lhs, const flat_hash_set & rhs)
-    {
+    std::pair<typename Table::iterator, bool> emplace(key_type&& arg) {
+        return Table::emplace(std::move(arg));
+    }
+
+    friend bool operator==(const flat_hash_set& lhs, const flat_hash_set& rhs) {
         if (lhs.size() != rhs.size())
             return false;
         for (const T & value : lhs)
@@ -1443,8 +1437,8 @@ public:
         }
         return true;
     }
-    friend bool operator!=(const flat_hash_set & lhs, const flat_hash_set & rhs)
-    {
+
+    friend bool operator!=(const flat_hash_set& lhs, const flat_hash_set& rhs) {
         return !(lhs == rhs);
     }
 };
