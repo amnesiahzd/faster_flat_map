@@ -200,7 +200,7 @@ struct faster_table_entry {
 
     template<typename... Args>
     void emplace(int8_t distance, Args&& ...args) { 
-        new (std::addressof(_value)) T(std::forward<Args>(args)...); // AmnesiaHzd: new object at this position
+        new (std::addressof(_value)) T(std::forward<Args>(args)...); // AmnesiaHzd: new object at this position // judge if can use a constructor
         _distance_from_desired = distance;
     }
 
@@ -225,13 +225,14 @@ inline int8_t log2(size_t value) {
         56, 45, 25, 31, 35, 16,  9, 12,
         44, 24, 15,  8, 23,  7,  6,  5
     };
+    // Set all positions after the highest bit to 1
     value |= value >> 1;
     value |= value >> 2;
     value |= value >> 4;
     value |= value >> 8;
     value |= value >> 16;
     value |= value >> 32;
-    return table[((value - (value >> 1)) * 0x07EDD5E59A4E28C2) >> 58];
+    return table[((value - (value >> 1)) * 0x07EDD5E59A4E28C2) >> 58]; // AmnesiaHzd : magic number? to find the unique identify？
 }
 
 // let the value of rhs copy to lhs
@@ -253,6 +254,7 @@ struct AssignIfTrue<T, false> {
     void operator()(T &, T &&) {}
 };
 
+// All low bits are set to 1, and 1 is added at the end.
 inline size_t next_power_of_two(size_t i) {
     --i;
     i |= i >> 1;
@@ -268,6 +270,7 @@ inline size_t next_power_of_two(size_t i) {
 template<typename...> 
 using void_t = void;
 
+// line here
 template<typename T, typename = void>
 struct HashPolicySelector {
     typedef fibonacci_hash_policy type;
