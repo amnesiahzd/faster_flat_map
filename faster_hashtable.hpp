@@ -270,7 +270,6 @@ inline size_t next_power_of_two(size_t i) {
 template<typename...> 
 using void_t = void;
 
-// line here
 template<typename T, typename = void>
 struct HashPolicySelector {
     typedef fibonacci_hash_policy type;
@@ -553,8 +552,19 @@ public:
         return end();
     }
 
-    const_iterator find(const FindKey & key) const {
-        return const_cast<faster_hashtable*>(this)->find(key); // whi
+    iterator find(const FindKey& key) {
+        size_t index = hash_policy.index_for_hash(hash_object(key), _num_slots_minus_one);
+        EntryPointer it = _entries + ptrdiff_t(index);
+        for (int8_t distance = 0; it->distance_from_desired >= distance; ++distance, ++it) {
+            if (compares_equal(key, it->value)) {
+                return { it };
+            }
+        }
+        return end();
+    }
+
+    const_iterator find(const FindKey& key) const {
+        return const_cast<faster_hashtable*>(this)->find(key); // why?
     }
 
     size_t count(const FindKey& key) const {
@@ -605,10 +615,10 @@ public:
         std::swap(_entries, new_buckets);
         std::swap(_num_slots_minus_one, num_buckets);
         --_num_slots_minus_one;
-        _hash_policy.commit(new_prime_index); // TODO: how about using move
+        _hash_policy.commit(new_prime_index); // AmnesiaHzd: how about using move
 
         int8_t old_max_lookups = _max_lookups;
-        _max_lookups = new_max_lookups; // TODO: how about after deallocate
+        _max_lookups = new_max_lookups; // AmnesiaHzd: how about after deallocate
         _num_elements = 0;
 
         // step5 deallocate old buckets
@@ -636,6 +646,7 @@ public:
         EntryPointer current = to_erase.current;
         current->destroy_value();
         --_num_elements;
+
         for (EntryPointer next = current + ptrdiff_t(1); !next->is_at_desired_position(); ++current, ++next) {
             current->emplace(next->distance_from_desired - 1, std::move(next->value));
             next->destroy_value();
@@ -816,7 +827,7 @@ private:
         swap(_max_lookups, other.max_lookups);
         swap(_max_load_factor, other._max_load_factor);
     }
-
+// line here
     template<typename Key, typename... Args>
     DDAOF_NOINLINE(std::pair<iterator, bool>) 
     emplace_new_key(int8_t distance_from_desired, EntryPointer current_entry, Key&& key, Args&&... args) {
@@ -901,6 +912,7 @@ private:
                 return ++iterator{it};
             }   
         }
+
         operator const_iterator() {
             if (it->has_value()) {
                 return { it };
