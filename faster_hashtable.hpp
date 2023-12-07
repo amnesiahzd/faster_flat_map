@@ -24,9 +24,9 @@
 #include <initializer_list>
 #include <math.h>
 #include <memory>
-#include <utility>
 #include <stdexcept>
 #include <stdint.h>
+#include <utility>
 
 #ifdef _MSC_VER
 #define DDAOF_NOINLINE(...) __declspec(noinline) __VA_ARGS__
@@ -564,7 +564,7 @@ public:
     }
 
     const_iterator find(const FindKey& key) const {
-        return const_cast<faster_hashtable*>(this)->find(key); // why?
+        return const_cast<faster_hashtable*>(this)->find(key);
     }
 
     size_t count(const FindKey& key) const {
@@ -874,7 +874,7 @@ private:
 
     void deallocate_data(EntryPointer begin, size_t num_slots_minus_one, int8_t max_lookups) {
         if (begin != Entry::empty_default_table()) {
-            AllocatorTraits::deallocate(*this, begin, num_slots_minus_one + max_lookups + 1);
+            AllocatorTraits::deallocate(*this, begin, num_slots_minus_one + max_lookups + 1); // ?
         }
     }
 
@@ -1304,7 +1304,6 @@ class flat_hash_map
         typename std::allocator_traits<A>::template rebind_alloc<ddaof::faster_table_entry<std::pair<K, V>>>
     >;
 public:
-
     using key_type = K;
     using mapped_type = V;
 
