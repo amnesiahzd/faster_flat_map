@@ -70,20 +70,20 @@ template<typename Result, typename... Args> // AmnesiaHzd pointer 特化
 struct functor_storage<Result, Result (*)(Args...)> {
     typedef Result (*function_ptr)(Args...);
     // why cannt use using (*function_ptr)(Args...) = Result?
-    function_ptr function;
+    function_ptr _function;
     functor_storage(function_ptr function)
-            : function(function) {}
+            : _function(function) {}
     
     Result operator()(Args... args) const {
-        return function(std::forward<Args>(args)...);
+        return _function(std::forward<Args>(args)...);
     }
 
     operator function_ptr &() {
-        return function;
+        return _function;
     }
 
     operator const function_ptr &() {
-        return function;
+        return _function;
     }
 };
 
