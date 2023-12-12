@@ -20,6 +20,7 @@
  */
 #pragma once
 
+#include <memory>
 #include <utility>
 #include <stddef.h>
 #include <stdint.h>
@@ -252,6 +253,192 @@ struct HashPolicySelector<T, void_t<typename T::hash_policy>> {
     typedef typename T::hash_policy type;
 };
 
+template <typename T, typename TypeKey,         // TODO: to clear why here is different
+          typename Hasher, typename HasherArg,
+          typename Equal, typename EqualArg,
+          typename Alloc, typename AllocArg>
+struct faster_hashtable : private Hasher, private Equal, private Alloc {
+    using entry = faster_hashtable_entry<T>;
+    using AllocatorTraits = std::allocator_traits<Alloc>; // deep look at this
+    using EntryPointer = AllocatorTraits::pointer;
+public:
+    using value_type = T;
+    using size_type = size_t;
+    using diff_type = std::ptrdiff_t;
 
+    using const_value_type = const value_type;
+    using pointer_type = value_type*;
+    using const_pointer_type = const value_type*;
+    using value_reference_type = value_type&;
+
+    // 1st coding: forget to add bucket_count
+    // to clear explicit
+    explicit faster_hashtable(size_t bucket_counts, 
+                              const HasherArg& hasher_arg = HasherArg(), 
+                              const EqualArg& equal_arg = EqualArg(), 
+                              const AllocArg& alloc_arg = AllocArg())
+            : Hasher(hasher_arg), EqualArg(equal_arg), AllocArg(alloc_arg) {
+        rehash(bucket_counts);
+    }
+
+    // 因为写去掉后面的arguments的构造函数是没有意义的
+
+    faster_hashtable(size_t bucket_counts, 
+                     const HasherArg& hasher_arg = HasherArg(), 
+                     const EqualArg& equal_arg = EqualArg(), 
+                     const AllocArg& alloc_arg = AllocArg())
+            : Hasher(hasher_arg), EqualArg(equal_arg), AllocArg(alloc_arg) {
+        rehash(bucket_counts);
+    }
+
+    faster_hashtable(size_t bucket_counts,
+                     const AllocArg& alloc_arg = AllocArg()) {
+        faster_hashtable(bucket_counts, HasherArg(), EqualArg(), alloc_arg);
+    }
+
+    faster_hashtable(size_t bucket_counts,
+                     const EqualArg& equal_arg = EqualArg()) {
+        faster_hashtable(bucket_counts, HasherArg(), equal_arg);
+    }
+
+    faster_hashtable(size_t bucket_counts,
+                     const EqualArg& equal_arg = EqualArg(),
+                     const AllocArg& alloc_arg = AllocArg()) 
+            : faster_hashtable(bucket_counts, HasherArg(), equal_arg, alloc_arg) {}
+
+    faster_hashtable(size_t bucket_counts,
+                     const HasherArg& hasher_arg = HasherArg(),
+                     const AllocArg& alloc_arg = AllocArg())
+            : faster_hashtable(bucket_counts, hasher_arg, EqualArg(), alloc_arg) {}
+
+    explicit faster_hashtable(const ArgumentAlloc& alloc)
+            : Alloc(alloc) {}
+
+    template<typename It>
+    faster_hashtable(It first, It last, size_t bucket_counts,
+                     const HasherArg& hasher_arg = HasherArg(), 
+                     const EqualArg& equal_arg = EqualArg(), 
+                     const AllocArg& alloc_arg = AllocArg())
+            : faster_hashtable(bucket_counts, hasher_arg, equal_arg, alloc_arg) {
+        insert(first, last);
+    }
+
+    template<typename It>
+    faster_hashtable(It first, It last, size_t bucket_counts,
+                     const AllocArg& alloc = AllocArg())
+            : faster_hashtable(bucket_counts, HasherArg(), EqualArg(), alloc) {
+        insert(first, last);
+    }
+
+    template<typename It>
+    faster_hashtable(It first, It last, size_t bucket_counts,
+                     const HasherArg& hash = HasherArg(), 
+                     const AllocArg& alloc = AllocArg())
+            : faster_hashtable(bucket_counts, hash, EqualArg(), alloc) {
+        insert(first, last);
+    }
+
+    faster_hashtable(std::initializer_list<T>& list, size_t bucket_counts,
+                     const HasherArg& hasher_arg = HasherArg(), 
+                     const EqualArg& equal_arg = EqualArg(), 
+                     const AllocArg& alloc_arg = AllocArg())
+            : faster_hashtable(bucket_counts, hasher_arg, equal_arg, alloc_arg) {
+        if (_bucket_count == 0) {
+            rehash(list.size());
+        }
+        insert(list.begin(), list.end());
+    }
+
+    faster_hashtable(std::initializer_list<T>& list, size_t bucket_counts,
+                     const AllocArg& alloc = AllocArg())
+            : faster_hashtable(bucket_counts, HasherArg(), EqualArg(), alloc) {
+        if (_bucket_count == 0) {
+            rehash(list.size());
+        }
+        insert(list.begin(), list.end());
+    }
+
+    faster_hashtable(std::initializer_list<T>& list, size_t bucket_counts,
+                     const HasherArg& hash = HasherArg(), 
+                     const AllocArg& alloc = AllocArg())
+            : faster_hashtable(bucket_counts, hash, EqualArg(), alloc) {
+        if (_bucket_count == 0) {
+            rehash(list.size());
+        }
+        insert(list.begin(), list.end());
+    }
+    
+    // copy constructor
+    faster_hashtable(const faster_hashtable& other) 
+            : Hasher(other), Alloc(other), Equal(other), _max_load_factor(other._max_load_factor) {
+        rehash_for_other_container(other);
+        try {
+            insert(other.begin(), other.end())
+        } catch(...) {
+            clear();
+            deallocate_data();
+            throw;
+        }
+    }
+
+    faster_hashtable(const faster_hashtable&& other) 
+            : Hasher(std::move(other)), Alloc(std::move(other)), Equal(std::move(other)) {
+        swap_pointers(other);
+    }
+
+    faster_hashtable(const faster_hashtable&& other, HasherArg& hash) 
+            : Hasher(hash), Alloc(std::move(other)), Equal(std::move(other)) {
+        swap_pointers(other);
+    }
+
+    //select_on_container_copy_construction
+    // 再写一遍
+    faster_hashtable& operator=(faster_hashtable& other) { // TODO: whats the difference between  =  and copy constructor
+        if(std::addressof(other) == this) {
+            return *this;
+        }
+        clear();
+
+        bool is_can_propagate_assign = AllocatorTraits::propagate_on_container_copy_assignment::value;
+        if (is_can_propagate_assign) {
+            if (static_cast<Alloc>(*this) != static_cast<const Alloc&>(other)) {
+                reset_to_empty_state(); // TODO: get clear why
+            }
+            AssignIfTrue<EntryAlloc, is_can_propagate_assign>()(*this, other);
+        }
+
+        swap_pointers(other);
+        static_cast<Hasher>(*this) = other; //
+        static_cast<Equal>(*this) = other;  //
+        this->_bucket_count = other._bucket_count;
+        this->_max_load_factor = other._max_load_factor;
+
+        rehash_for_other_container(other);  //
+        insert(other.begin(), other.end()); //
+
+        return *this;
+    }
+
+    const Alloc& get_alloc() {
+        return static_cast<const Alloc&>(*this); // 保证返回类型和设定的返回类型一致，包括const and ref
+    }
+
+    const Equal& get_equal() {
+        return static_cast<const Equal&>(*this);
+    }
+
+    const Hasher& get_hasher() {
+        return static_cast<const Hasher&>(*this);
+    }
+
+    ~faster_hashtable() {
+        clear();
+        deallocate_data();
+    }
+
+private:
+    float _max_load_factor;
+    size_type _bucket_count;
+};
 
 } // endnamespace ddaof

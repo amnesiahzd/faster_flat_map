@@ -444,7 +444,7 @@ public:
         deallocate_data(_entries, _num_slots_minus_one, _max_lookups);
     }
 
-    faster_hashtable& operator=(const faster_hashtable& other) noexcept { // TODO: clear why is different from copy=
+    faster_hashtable& operator=(const faster_hashtable&& other) noexcept {
         if (this == std::addressof(other)) {
             return *this;
         } else if (AllocatorTraits::propagate_on_container_move_assignment::value) { // TODO
