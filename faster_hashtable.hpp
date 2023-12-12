@@ -406,7 +406,7 @@ public:
         swap_pointers(other);
     }
 
-    faster_hashtable& operator=(faster_hashtable& other) { 
+    faster_hashtable& operator=(const faster_hashtable& other) { // to clear add 'const' here if change the code behavior
         if (this == std::addressof(other)) {
             return *this;
         }
@@ -427,6 +427,33 @@ public:
         return *this;
     }
 
+    faster_hashtable& operator=(const faster_hashtable&& other) noexcept {
+        if (this == std::addressof(other)) {
+            return *this;
+        } else if (AllocatorTraits::propagate_on_container_move_assignment::value) { // TODO
+            clear();
+            reset_to_empty_state();
+            AssignIfTrue<EntryAlloc, AllocatorTraits::propagate_on_container_move_assignment::value>()(*this, std::move(other));
+            swap_pointers(other);
+        } else if (static_cast<EntryAlloc &>(*this) == static_cast<EntryAlloc &>(other)) {
+            swap_pointers(other);
+        } else {
+            clear();
+
+            _max_load_factor = other._max_load_factor;
+            rehash_for_other_container(other);
+            for (T& elem : other) {
+                emplace(std::move(elem));
+            }
+    
+            other.clear();
+        }
+
+        static_cast<Hasher&>(*this) = std::move(other);
+        static_cast<Equal&>(*this) = std::move(other);
+        return *this;
+    }
+
     const allocator_type& get_allocator() const {
         return static_cast<const allocator_type&>(*this);
     }
@@ -442,32 +469,6 @@ public:
     ~faster_hashtable() {
         clear();
         deallocate_data(_entries, _num_slots_minus_one, _max_lookups);
-    }
-
-    faster_hashtable& operator=(const faster_hashtable&& other) noexcept {
-        if (this == std::addressof(other)) {
-            return *this;
-        } else if (AllocatorTraits::propagate_on_container_move_assignment::value) { // TODO
-            clear();
-            reset_to_empty_state();
-            AssignIfTrue<EntryAlloc, AllocatorTraits::propagate_on_container_move_assignment::value>()(*this, std::move(other));
-            swap_pointers(other);
-        } else if (static_cast<EntryAlloc &>(*this) == static_cast<EntryAlloc &>(other)) {
-            swap_pointers(other);
-        } else {
-            clear();
-            _max_load_factor = other._max_load_factor;
-            rehash_for_other_container(other);
-            for (T& elem : other) {
-                emplace(std::move(elem));
-            }
-                
-            other.clear();
-        }
-
-        static_cast<Hasher&>(*this) = std::move(other);
-        static_cast<Equal&>(*this) = std::move(other);
-        return *this;
     }
 
     template<typename ValueType>
