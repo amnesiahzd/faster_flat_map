@@ -20,6 +20,7 @@
  */
 #pragma once
 
+#include <cmath>
 #include <memory>
 #include <utility>
 #include <stddef.h>
@@ -343,7 +344,7 @@ public:
                      const EqualArg& equal_arg = EqualArg(), 
                      const AllocArg& alloc_arg = AllocArg())
             : faster_hashtable(bucket_counts, hasher_arg, equal_arg, alloc_arg) {
-        if (_bucket_count == 0) {
+        if (bucket_counts == 0) {
             rehash(list.size());
         }
         insert(list.begin(), list.end());
@@ -352,7 +353,7 @@ public:
     faster_hashtable(std::initializer_list<T>& list, size_t bucket_counts,
                      const AllocArg& alloc = AllocArg())
             : faster_hashtable(bucket_counts, HasherArg(), EqualArg(), alloc) {
-        if (_bucket_count == 0) {
+        if (bucket_counts == 0) {
             rehash(list.size());
         }
         insert(list.begin(), list.end());
@@ -362,7 +363,7 @@ public:
                      const HasherArg& hash = HasherArg(), 
                      const AllocArg& alloc = AllocArg())
             : faster_hashtable(bucket_counts, hash, EqualArg(), alloc) {
-        if (_bucket_count == 0) {
+        if (bucket_counts == 0) {
             rehash(list.size());
         }
         insert(list.begin(), list.end());
@@ -393,7 +394,7 @@ public:
 
     //select_on_container_copy_construction
     // 再写一遍
-    faster_hashtable& operator=(faster_hashtable& other) { // TODO: whats the difference between  =  and copy constructor
+    faster_hashtable& operator=(faster_hashtable& other) { // TODO: whats the difference between  =  and copy constructor / to clear add const if change the behavior of the code
         if(std::addressof(other) == this) {
             return *this;
         }
@@ -410,7 +411,6 @@ public:
         swap_pointers(other);
         static_cast<Hasher>(*this) = other; //
         static_cast<Equal>(*this) = other;  //
-        this->_bucket_count = other._bucket_count;
         this->_max_load_factor = other._max_load_factor;
 
         rehash_for_other_container(other);  //
@@ -431,14 +431,89 @@ public:
         return static_cast<const Hasher&>(*this);
     }
 
+    size_t size() {
+        return _num_elements;
+    }
+
+    size_t buckets_count() {
+        return _slots_num_minus_one ? _slots_num_minus_one + 1 : 0;
+    }
+
     ~faster_hashtable() {
         clear();
         deallocate_data();
     }
 
 private:
-    float _max_load_factor;
-    size_type _bucket_count;
+    int8_t _max_lookups = ddaof::min_lookups - 1;
+    float _max_load_factor = 0.5f;
+    size_t _slots_num_minus_one;
+    size_t _num_elements; 
+
+    Hasher _hash_policy; // wrong: choose another typename
+    Equal _equal;
+    Alloc _allocator;
+    EntryPointer _entrys = faster_hashtable_entry<T>::get_defualt_table();
+
+    uint8_t compute_max_lookups(size_t bucket) {
+        uint8_t desired = log2(bucket);
+        return std::max(ddaof::min_lookups, desired);
+    }
+
+    // The current factor may be reset every time it is reserved.
+    size_t num_buckets_for_reserve(size_t new_elements_count) {
+        return static_cast<size_t>(new_elements_count / std::min(0.5f, static_cast<double>(_max_load_factor)));
+    }
+
+    void rehash_for_other_container(const faster_hashtable& other) {
+        // the num of the elements must minus than the slots, why design this?
+        rehash(std::min(num_buckets_for_reserve(other.size()), other.num_buckets_for_reserve + 1));
+    }
+
+    void swap_pointers(faster_hashtable& other) {
+        using std::swap;
+        swap(_max_lookups, other._max_lookups);
+        swap(_max_load_factor, other._max_load_factor);
+        swap(_slots_num_minus_one, other._slots_num_minus_one);
+        swap(_num_elements, other.num_elements);
+
+        swap(_hash_policy, other.hash_policy);
+        swap(_max_load_factor, other._max_load_factor);
+
+        // why didnt swap Equal Alloc
+    }
+
+    void grow() {
+        rehash(std::max(static_cast<size_t>(4), bucket_count() * 2));
+    }
+
+    void deallocate_data(EntryPointer entry, size_t num_slots_minus_one, int8_t max_lookups) {
+        if (entry != faster_hashtable_entry::empty_default_table()) {
+            AllocatorTraits::deallocate(static_cast<Alloc>(*this), entry, num_slots_minus_one + 1 + max_lookups);
+        }
+    }
+
+    void reset_to_empty_state() {
+        deallocate_data(_entrys, _slots_num_minus_one, _max_lookups);
+
+        _slots_num_minus_one = 0;
+        _max_lookups = ddaof::min_lookups - 1;
+        _entrys = faster_hashtable_entry::empty_default_table();
+        _hash_policy.reset();
+
+        return;
+    }
+
+    template<typename U>
+    value_type& hasher_object(const U& key) {
+        return static_cast<Hasher&>(*this)(key);
+    }
+
+    template<typename Left, typename Right>
+    bool compares_equal(const Left& lhs, const Right& rhs) {
+        return static_cast<Equal>(*this)(lhs, rhs);
+    }
+
 };
 
 } // endnamespace ddaof

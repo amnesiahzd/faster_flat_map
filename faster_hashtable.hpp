@@ -828,7 +828,7 @@ private:
         swap(_max_lookups, other.max_lookups);
         swap(_max_load_factor, other._max_load_factor);
     }
-// line here
+    
     template<typename Key, typename... Args>
     DDAOF_NOINLINE(std::pair<iterator, bool>) 
     emplace_new_key(int8_t distance_from_desired, EntryPointer current_entry, Key&& key, Args&&... args) {
