@@ -523,7 +523,7 @@ public:
 
     iterator begin() {
         for (EntryPointer it = _entries; ; ++it) {
-            if (it->has_value) {
+            if (it->has_value()) {
                 return {it};
             }
         }
@@ -531,7 +531,7 @@ public:
 
     const_iterator begin() const {
         for (EntryPointer it = _entries; ; ++it) {
-            if (it->has_value) {
+            if (it->has_value()) {
                 return {it};
             }
         }
