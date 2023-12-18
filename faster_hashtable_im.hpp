@@ -260,7 +260,7 @@ template <typename T, typename TypeKey,         // TODO: to clear why here is di
           typename Equal, typename EqualArg,
           typename Alloc, typename AllocArg>
 struct faster_hashtable : private Hasher, private Equal, private Alloc {
-    using entry = faster_hashtable_entry<T>;
+    using Entry = faster_hashtable_entry<T>;
     using AllocatorTraits = std::allocator_traits<Alloc>; // deep look at this
     using EntryPointer = AllocatorTraits::pointer;
 public:
@@ -525,6 +525,133 @@ public:
 
     const_iterator cend() const {
         return end();
+    }
+
+    // FindKey 为啥不跟Key和Value Type一致？
+    // 需要将表结构弄清楚
+    iterator find(const FindKey& find_key) {
+        // 1. caculate current hash index;
+        size_t hash_index = _hash_policy.index_for_hash(hasher_object(key), _slots_num_minus_one);
+
+        // 2. get the ptr addr of the slot
+        EntryPointer ptr = _entrys + ptrdiff_t(hash_index);
+
+        // 3. loop to find the key
+        int8_t distance_from_desired = 0;
+        for(; ptr->distance_from_desired <= distance_from_desired; distance_from_desired++, ptr++) {
+            if (compares_equal(find_key, ptr->value)) {
+                return { ptr }; // AmnesiaHzd: why?
+            }
+
+            return end();
+        }
+    }
+
+    const_iterator find(const FindKey& key) const {
+        return const_cast<faster_hashtable*>(this)->find(key);
+    }
+
+    size_t count(const FindKey& key) const {
+        return find(key) == end() ? 0 : 1;
+    }
+
+    std::pair<iterator, iterator> equal_range(const FindKey& key) {
+        iterator found = find(key);
+        if (found == end()) {
+            return std::make_pair(found, found);
+        } else {
+            return std::make_pair(found, std::next(found));
+        }
+    }
+
+    std::pair<const_iterator, const_iterator> equal_range(const FindKey& key) const {
+        iterator found = find(key);
+        if (found == end()) {
+            return std::make_pair(found, found);
+        } else {
+            return std::make_pair(found, std::next(found));
+        }   
+    }
+
+    void reserve(size_t num_elements) {
+        size_t required_buckets = num_buckets_for_reserve(num_elements);
+        if (num_elements > buckets_count()) {
+            rehash(required_buckets);
+        }
+    }
+
+    void clear() {
+        for (EntryPointer it = _entrys, end = it + ptrdiff_t(_slots_num_minus_one + _max_lookups); it != end; ++it) {
+            if (it->has_value()) {
+                it->destroy_value();
+            }
+        }
+    }
+
+    size_t erase(const FindKey& key) { // copy real erase here
+        auto found = find(key);
+        if (found == end()) {
+            return 0;
+        } else {
+            erase(key);
+            return 1;
+        }
+    }
+
+    void shrink_to_fit() {
+        rehash_for_other_container(*this);
+    }
+
+    void swap(faster_hashtable& other) {
+        using std::swap;
+        swap_pointers(other);
+
+        swap(static_cast<Hasher&>(*this), other._hash_policy); // 为什么是Hash&
+        swap(static_cast<Equal&>(*this), other._equal);
+        if (AllocatorTraits::propagate_on_container_swap::value) { // 想不到这个if
+            swap(static_cast<Entry&>(*this), static_cast<Entry&>(other));
+        } 
+    }
+
+    size_t size() {
+        return _num_elements;
+    }
+
+    size_t max_size() {
+        return (AllocatorTraits::max_size(*this)) / sizeof(Entry); // why?
+    }
+
+    size_t max_bucket_size() {
+        return (AllocatorTraits::max_size(*this) - min_lookups) / sizeof(Entry); // why?
+    }
+
+    size_t bucket_hash(const FindKey & key) const {
+        return _hash_policy.index_for_hash(hash_object(key), _slots_num_minus_one);
+    }
+
+    size_t bucket_count() const {
+        return _slots_num_minus_one ? _slots_num_minus_one + 1 : 0;
+    }
+
+    float current_load_factor() {
+        auto current_bucket_count = bucket_count();
+        if (current_bucket_count > 0) {
+            return static_cast<float>(_num_elements) / bucket_count();
+        } else {
+            return 0;
+        }
+    }
+
+    void set_max_load_factor(float load_factor) {
+        _max_load_factor = load_factor;
+    }
+
+    float get_max_load_factor() {
+        return _max_load_factor;
+    }
+
+    bool empty() {
+        return _num_elements = 0;
     }
 
 private:
