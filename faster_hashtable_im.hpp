@@ -573,6 +573,8 @@ public:
         }   
     }
 
+    // line: 58
+
     void reserve(size_t num_elements) {
         size_t required_buckets = num_buckets_for_reserve(num_elements);
         if (num_elements > buckets_count()) {
@@ -652,6 +654,47 @@ public:
 
     bool empty() {
         return _num_elements = 0;
+    }
+
+    template<typename Key, typename ...Args>
+    std::pair<iterator, bool>
+    emplace(const Key&& key, const Args&&... args) {
+        // step1 get the index of key start position
+        auto index = _hash_policy.index_for_hash(hasher_object(key));
+        EntryPointer current_entry = _entrys + ptrdiff_t(index);
+        int8_t distance_from_desired = 0;
+
+        // step2 loop to check if can emplace and find the distance_from_desired
+        for( ; current_entry->_distance_from_desired >= distance_from_desired; ++current_entry, ++distance_from_desired) {
+            if (compares_equal(current_entry->value, key)) {
+                return std::make_pair(current_entry, false);
+            }
+        }
+
+        return emplace_new_key(distance_from_desired, current_entry, std::forward<Key>(key), std::forward<Args>(args)...);
+    }
+
+    template<typename... Args>
+    iterator emplace_hint(const_iterator, Args& ...args) {
+        return emplace(std::forward<Args>(args)...).first;
+    }
+
+    std::pair<iterator, bool> insert(const value_type& value) {
+        return emplace(value);
+    }
+
+    std::pair<iterator, bool> insert(value_type&& value) {
+        return emplace(std::move(value));
+    }
+
+    // Ensures consistency with standard containers, 
+    // but always inserts at the first position
+    iterator insert(const_iterator, const value_type& value) {
+        return emplace(value).first;
+    }
+
+    iterator insert(const_iterator, value_type && value) {
+        return emplace(std::move(value)).first;
     }
 
 private:
