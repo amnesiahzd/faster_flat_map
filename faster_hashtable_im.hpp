@@ -736,6 +736,47 @@ private:
         // why didnt swap Equal Alloc
     }
 
+    template<typename Key, typename... Args>
+    std::pair<iterator, bool> // TODO: iterator_traits
+    emplace_new_key(int8_t distance_from_desired, EntryPointer current_entry, Key&& key, Ags&&... args) {
+        using std::swap;
+        if (_slots_num_minus_one == 0
+                || distance_from_desired == _max_lookups
+                || _num_elements + 1 > (_slots_num_minus_one + 1) * static_cast<double>(_max_load_factor)) {
+            grow();
+            return emplace(std::forward<Key>(key), std::forward<Args>(args)...);
+        } else if (current_entry->is_empty()) {
+            current_entry->emplace(distance_from_desired, std::forward<Key>(key), std::forward<Args>(args)...);
+        } else {/*nothing need to do*/}
+
+        value_type to_insert = new value_reference_type(std::forward<Key>(key), std::forward<Args>(args)...);
+        swap(distance_from_desired, current_entry->distance_from_desired);
+        swap(to_insert, current_entry->value);
+        iterator result = { current_entry };
+
+        for (++distance_from_desired, ++current_entry;; ++current_entry) {
+            if (current_entry->is_empty()) { // if is empty
+                current_entry->emplace(distance_from_desired, std::move(to_insert));
+                ++_num_elements;
+                return std::make_pair(result, true);
+            } else if (current_entry->distance_from_desired < distance_from_desired) {
+                swap(distance_from_desired, current_entry->distance_from_desired);
+                swap(to_insert, current_entry->value);
+                ++distance_from_desired;
+
+                // where is the return
+            } else {
+                ++distance_from_desired;
+                if (distance_from_desired == _max_lookups) {
+                    swap(to_insert, result.current->value);
+                    grow();
+                    return emplace(std::move(to_insert));
+                }
+            }
+        }
+    }
+
+
     void grow() {
         rehash(std::max(static_cast<size_t>(4), bucket_count() * 2));
     }
@@ -766,6 +807,26 @@ private:
     bool compares_equal(const Left& lhs, const Right& rhs) {
         return static_cast<Equal>(*this)(lhs, rhs);
     }
+
+    struct convertible_to_iterator {
+        EntryPointer it;
+
+        operator iterator() {
+            if (it->has_value()) {
+                return { it };
+            } else {
+                return ++iterator{it};
+            }   
+        }
+
+        operator const_iterator() {
+            if (it->has_value()) {
+                return { it };
+            } else {
+                return ++const_iterator{it};
+            }
+        }
+    };
 
 };
 
