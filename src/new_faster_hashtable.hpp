@@ -1,6 +1,10 @@
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <type_traits>
 #include <utility>
+
+static constexpr int8_t min_lookups = 4;
 
 template<typename Functor>
 struct function_wrapper : public Functor {
@@ -114,6 +118,53 @@ struct key_or_value_equality : public function_wrapper<bool, Equal> {
     }
 };
 
+template<typename T>
+struct faster_table_entry {
+    faster_table_entry() {}
+    faster_table_entry(int distance_from_desired) : _distance_from_desired(distance_from_desired) {}
+    faster_table_entry(faster_table_entry& other) : _distance_from_desired(other._distance_from_desired) {}
+    ~faster_table_entry() {
+        if constexpr (!std::is_trivially_destructible<T>::value) {
+            _value.~T(); 
+        }
+        _distance_from_desired = -1;
+    }
+
+    static faster_table_entry* empty_default_table() {
+        static faster_table_entry result[min_lookups] = { {}, {}, {}, {_special_end_value} };
+        return result;
+    }
+
+    bool has_value() const {
+        return _distance_from_desired > -1;
+    }
+
+    bool is_empty() const {
+        return _distance_from_desired == -1;
+    }
+
+    bool is_at_desired_pos() const {
+        return _distance_from_desired <= 0;
+    }
+
+    template<typename ...Args>
+    void emplace(int distance, Args&&... args) {
+        new (std::addressof(_value)) T(std::forward<Args>(args)...);
+        _distance_from_desired = distance;
+    }
+
+    void destroy_value() {
+        if constexpr (!std::is_trivially_destructible<T>::value) {
+            _value.~T(); 
+        }
+        _distance_from_desired = -1;
+    }
+
+    int8_t _distance_from_desired = -1;
+    constexpr static int8_t _special_end_value = 0;
+    union {T _value;}
+};
+
 inline int8_t log2(size_t value) {
     static constexpr int8_t table[64] = {
         63,  0, 58,  1, 59, 47, 53,  2,
@@ -135,4 +186,31 @@ inline int8_t log2(size_t value) {
     return table[((value - (value >> 1)) * 0x07EDD5E59A4E28C2) >> 58]; // AmnesiaHzd : magic number? to find the unique identify？
 }
 
+template<typename T, bool>
+struct assign_if_true {
+    void operator()(T& lhs, const T& rhs) {
+        lhs = rhs;
+    }
 
+    void operator()(T&& lhs, T&& rhs) {
+        lhs = std::move(rhs);
+    }
+};
+
+template<typename T>
+struct assign_if_true<T, false> {
+    void operator()(T& lhs, const T& rhs) { /*empty*/ }
+    void operator()(const T& lhs, const T& rhs) { /*empty*/ }
+};
+
+inline size_t next_power_of_two(size_t i) {
+    --i;
+    i |= i >> 1;
+    i |= i >> 2;
+    i |= i >> 4;
+    i |= i >> 8;
+    i |= i >> 16;
+    i |= i >> 32;
+    ++i;
+    return i;
+}
