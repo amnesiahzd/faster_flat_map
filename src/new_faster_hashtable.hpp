@@ -214,3 +214,106 @@ inline size_t next_power_of_two(size_t i) {
     ++i;
     return i;
 }
+
+template<typename...> 
+using void_t = void;
+
+template<typename T, typename = void>
+struct HashPolicySelector {
+    typedef fibonacci_hash_policy type;
+};
+
+template<typename T>
+struct HashPolicySelector<T, void_t<typename T::hash_policy>> {
+    typedef typename T::hash_policy type;
+};
+
+template<typename T, typename FindKey,
+         typename Hasher, typename ArgumentHash,
+         typename Equal, typename ArgumentEqual,
+         typename EntryAlloc, typename ArgumentAlloc>
+class faster_hashtable : private Hasher, private Equal, private EntryAlloc {
+    using Entry = faster_table_entry<T>;
+    using AllocatorTraits = std::allocator_traits<EntryAlloc>;
+    using EntryPointer = AllocatorTraits::pointer;
+    struct convertible_to_iterator;
+
+public:
+    using value_type = T;
+    using size_type = size_t;
+    using difference_type = std::ptrdiff_t;
+    
+    using hasher = ArgumentHash;
+    using key_equal = ArgumentEqual;
+    using allocator_type = EntryAlloc;
+
+    using reference = T&;
+    using const_reference = const T&;
+    using pointer = T*;
+    using const_pointer = const T*;
+
+    faster_hashtable() {}
+    faster_hashtable(size_type bucket_count, 
+                     const ArgumentHash& hash = ArgumentHash(), 
+                     const ArgumentEqual& equal = Equal(), 
+                     const ArgumentAlloc& alloc = ArgumentAlloc()) : Alloc(alloc), Hasher(hash), Equal(equal) {
+        rehash(bucket_count);
+    }
+
+    faster_hashtable(size_type bucket_count, const ArgumentAlloc& alloc)
+            : faster_hashtable(bucket_count, ArgumentHash(), ArgumentEqual(), alloc) {}
+
+    faster_hashtable(size_type bucket_count, const ArgumentHash& hash, const ArgumentAlloc& alloc)
+            : faster_hashtable(bucket_count, hash, ArgumentEqual(), alloc) {};
+
+    explicit faster_hashtable(const ArgumentAlloc& alloc)
+            : EntryAlloc(alloc) {}
+
+    template<typename It>
+    faster_hashtable(It first, It last, size_type bucket_count = 0, 
+                     const ArgumentHash& hash = ArgumentHash(), 
+                     const ArgumentEqual& equal = ArgumentEqual(), 
+                     const ArgumentAlloc& alloc = ArgumentAlloc())
+            : faster_hashtable(bucket_count, hash, equal, alloc) {
+        insert(first, last);
+    }
+
+    template<typename It>
+    faster_hashtable(It first, It last, size_type bucket_count,
+                     const ArgumentAlloc& alloc = ArgumentAlloc())
+            : faster_hashtable(bucket_count, ArgumentHash(), ArgumentEqual(), alloc) {
+        insert(first, last);
+    }
+
+    template<typename It>
+    faster_hashtable(It first, It last, size_type bucket_count,
+                     const ArgumentHash& hash = ArgumentHash(), 
+                     const ArgumentAlloc& alloc = ArgumentAlloc())
+            : faster_hashtable(bucket_count, hash, ArgumentEqual(), alloc) {
+        insert(first, last);
+    }
+
+    faster_hashtable(std::initializer_list<T>& initializer_list, // AmnesiaHzd: at origin codes, here isnt a ref
+                     size_type bucket_count = 0, 
+                     const ArgumentHash& hash = ArgumentHash(),
+                     const ArgumentEqual& equal = ArgumentEqual(), 
+                     const ArgumentAlloc& alloc = ArgumentAlloc())
+            : faster_hashtable(bucket_count, hash, equal, alloc) {
+        if (bucket_count == 0) {
+            rehash(initializer_list.size());
+        }
+        insert(initializer_list.begin(), initializer_list.end());
+    }
+
+    faster_hashtable(std::initializer_list<T>& initializer_list,
+                     size_type bucket_count, 
+                     const ArgumentAlloc& alloc = ArgumentAlloc())
+            : faster_hashtable(bucket_count, ArgumentHash(), ArgumentEqual(), alloc) {}
+
+    faster_hashtable(std::initializer_list<T>& initializer_list,
+                     size_type bucket_count, 
+                     const ArgumentHash& hash = ArgumentHash(), 
+                     const ArgumentAlloc& alloc = ArgumentAlloc())
+            : faster_hashtable(bucket_count, hash, ArgumentEqual(), alloc) {}
+
+};
