@@ -4,6 +4,7 @@
 #include <type_traits>
 #include <utility>
 
+namespace ddaof {
 static constexpr int8_t min_lookups = 4;
 
 template<typename Functor>
@@ -317,3 +318,5 @@ public:
             : faster_hashtable(bucket_count, hash, ArgumentEqual(), alloc) {}
 
 };
+
+} // end namespace ddaof
