@@ -316,6 +316,104 @@ public:
                      const ArgumentHash& hash = ArgumentHash(), 
                      const ArgumentAlloc& alloc = ArgumentAlloc())
             : faster_hashtable(bucket_count, hash, ArgumentEqual(), alloc) {}
+    
+    faster_hashtable(const faster_hashtable& other, ArgumentAlloc alloc) 
+            :EntryAlloc(alloc), Hasher(other), Equal(other),  _max_load_factor(other._max_load_factor) {
+        rehash_for_other(other)
+        try {
+            insert(other.begin(), other.end());
+        } catch(...) {
+            clear();
+            deallocate_data(_entries, _num_slots_minus_one, _max_lookups);
+            throw;
+        }
+    }
+
+    faster_hashtable(const faster_hashtable& other) : 
+            faster_hashtable(other, AllocatorTraits::select_on_container_copy_construction(other.get_allocator())) {}
+
+    faster_hashtable(faster_hashtable&& other) noexcept 
+            : EntryAlloc(std::move(other)), Hasher(std::move(other)), Equal(std::move(other)) {
+        swap_pointers(other);
+    }
+
+    faster_hashtable(faster_hashtable&& other, const ArgumentAlloc& alloc) noexcept
+            : EntryAlloc(alloc), Hasher(std::move(other)), Equal(std::move(other)) {
+        swap_pointers(other);
+    }
+
+    faster_hashtable& operator=(const faster_hashtable& other) {
+        // 1.判断是否相等
+        if (other == *this) {
+            return *this;
+        }
+        // 2.清除自身状态
+        clear();
+        if constexpr (AllocatorTraits::propagate_on_container_copy_assignment::value) {
+            if (static_cast<EntryAlloc>(*this) != static_cast<const EntryAlloc&>(other)) {
+                reset_to_empty_state();
+            }
+            AssignIfTrue<EntryAlloc, AllocatorTraits::propagate_on_container_copy_assignment::value>()(*this, other);
+        }
+        // 3.属性赋值
+        _max_load_factor = other._max_load_factor;
+        static_cast<Hasher&>(*this) = other;
+        static_cast<Equal&>(*this) = other;
+        // 4.value赋值
+        rehash_for_other_container(other);
+        insert(other.begin(), other.end());
+        return *this;
+    }
+
+    faster_hashtable& operator=(faster_hashtable&& other) {
+        if (other == *this) {
+            return *this;
+        } else if (AllocatorTraits::propagate_on_container_copy_assignment::value) {
+            clear();
+            reset_to_empty_state();
+            AssignIfTrue<EntryAlloc, AllocatorTraits::propagate_on_container_move_assignment::value>()(*this, std::move(other));
+            swap_pointer(other);
+        } else if (static_cast<EntryAlloc>(other) == static_cast<EntryAlloc>(*this)) {
+            swap_pointer(other);
+        } else {
+            clear();
+
+            _max_load_factor = other._max_load_factor;
+            rehash_for_other_container(other);
+            for (T& elem : other) {
+                emplace(std::move(elem));
+            }
+    
+            other.clear();
+        }
+        return *this;
+    }
+
+    const allocator_type& get_allocator() const {
+        return static_cast<const allocator_type&>(*this);
+    }
+
+    const ArgumentEqual& key_eq() const {
+        return static_cast<const ArgumentEqual&>(*this);
+    }
+
+    const ArgumentHash& hash_function() const {
+        return static_cast<const ArgumentHash&>(*this);
+    }
+
+    ~faster_hashtable() {
+        clear();
+        deallocate_data(_entries, _num_slots_minus_one, _max_lookups);
+    }
+
+
+private:
+    EntryPointer _entries = Entry::empty_default_table();
+    size_t _num_slots_minus_one = 0;
+    typename HashPolicySelector<ArgumentHash>::type _hash_policy;
+    int8_t _max_lookups = ddaof::min_lookups - 1;
+    float _max_load_factor = 0.5f;
+    size_t _num_elements = 0;
 
 };
 
