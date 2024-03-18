@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -406,6 +407,87 @@ public:
         deallocate_data(_entries, _num_slots_minus_one, _max_lookups);
     }
 
+    template<typename ValueType>
+    struct templated_iterator {
+        templated_iterator() = default;
+        templated_iterator(EntryPointer current) : _current(current) {}
+        EntryPointer _current = EntryPointer();
+
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = ValueType;
+        using difference_type = ptrdiff_t;
+        using pointer = ValueType*;
+        using reference = ValueType&;
+
+        friend bool operator==(const templated_iterator& lhs, const templated_iterator& rhs) {
+            return lhs._current == rhs._current;
+        }
+
+        friend bool operator!=(const templated_iterator& lhs, const templated_iterator& rhs) {
+            return !(lhs == rhs);
+        }
+
+        templated_iterator& operator++() {
+            do {
+                ++_current;
+            } while (_current->is_empty());
+            return *this;
+        }
+
+        templated_iterator operator++(int) {
+            templated_iterator copy(*this);
+            ++(*this);
+
+            return copy;
+        }
+
+        reference operator*() {
+            return _current->value;
+        }
+
+        pointer operator->() {
+            return std::addressof(_current->value);
+        }
+
+        operator templated_iterator<const value_type>() const {
+            return { _current };
+        }
+    };
+
+    using iterator = templated_iterator<value_type>;
+    using const_iterator = templated_iterator<const value_type>;
+
+    iterator begin() {
+        for (EntryPointer iter = _entries; ; ++iter) {
+            if (iter->has_value()) {
+                return {iter};
+            }
+        }
+    }
+
+    const_iterator cbegin() {
+        for (EntryPointer iter = _entries; ; ++iter) {
+            if (iter->has_value()) {
+                return {iter};
+            }
+        }
+    }
+
+    const_iterator cbegin() const {
+        return begin();
+    }
+
+    iterator end() {
+        return { _entries + static_cast<ptrdiff_t>(_num_slots_minus_one + _max_lookups) };
+    }
+
+    const_iterator end() const {
+        return { _entries + static_cast<ptrdiff_t>(_num_slots_minus_one + _max_lookups) };
+    }
+
+    const_iterator cend() const {
+        return end();
+    }
 
 private:
     EntryPointer _entries = Entry::empty_default_table();
