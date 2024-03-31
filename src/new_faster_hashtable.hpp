@@ -18,34 +18,35 @@
 namespace ddaof {
 static constexpr int8_t min_lookups = 4;
 
-template<typename Functor>
-struct function_wrapper : public Functor {
-    using Functor::Functor;
-    function_wrapper(const Functor& other_functor) : Functor(other_functor) {}
+struct fibonacci_hash_policy;
+struct power_of_two_hash_policy;
+struct prime_number_hash_policy;
+
+template<typename Result, typename Functor>
+struct function_wrapper {
+    function_wrapper() = default;
+    function_wrapper(const Functor& funtor) : Functor(funtor) {}
 
     template<typename... Args>
-    decltype(auto) operator()(Args&&... args) {
-        return Functor::operator()(std::forward<Args>(args)...);
+    Result operator()(Args&& ...args) {
+        return static_cast<Functor&>(*this)(std::forward<Args>(args)...);
     }
 
+    template<typename... Args>
+    Result operator()(Args&& ...args) const {
+        return static_cast<const Functor&>(*this)(std::forward<Args>(args)...);
+    }
 };
 
 template<typename Result, typename... Args>
-struct function_wrapper<Result (*)(Args...)> {
+struct function_wrapper<Result, Result(*)(Args...)> {
     using function_ptr = Result (*)(Args...);
     function_ptr _function;
 
-    explicit function_wrapper(function_ptr& other_ptr) : _function(other_ptr) {}
+    explicit function_wrapper(function_ptr other_ptr) : _function(other_ptr) {}
 
     Result operator()(Args&&... args) {
         return _function(std::forward<Args>(args)...);
-    }
-
-    operator function_ptr &() {
-        return _function;
-    }
-    operator const function_ptr &() {
-        return _function;
     }
 };
 
@@ -56,11 +57,11 @@ struct key_or_value_hasher : public function_wrapper<size_t, Hasher> {
     key_or_value_hasher(const Hasher& other) : hasher_storage(other) {}
 
     size_t operator()(const KeyType& key) { 
-        return hasher_storage::operator()(key)
+        return hasher_storage::operator()(key);
     }
 
     size_t operator()(const KeyType& key) const {
-        return hasher_storage::operator()(key)
+        return hasher_storage::operator()(key);
     }
 
     size_t operator()(const ValueType& value) {
@@ -174,7 +175,7 @@ struct faster_table_entry {
 
     int8_t _distance_from_desired = -1;
     constexpr static int8_t _special_end_value = 0;
-    union {T _value;}
+    union { T _value; };
 };
 
 inline int8_t log2(size_t value) {
@@ -247,7 +248,7 @@ template<typename T, typename FindKey,
 class faster_hashtable : private Hasher, private Equal, private EntryAlloc {
     using Entry = faster_table_entry<T>;
     using AllocatorTraits = std::allocator_traits<EntryAlloc>;
-    using EntryPointer = AllocatorTraits::pointer;
+    using EntryPointer = typename AllocatorTraits::pointer;
     struct convertible_to_iterator;
 
 public:
@@ -268,7 +269,7 @@ public:
     faster_hashtable(size_type bucket_count, 
                      const ArgumentHash& hash = ArgumentHash(), 
                      const ArgumentEqual& equal = Equal(), 
-                     const ArgumentAlloc& alloc = ArgumentAlloc()) : Alloc(alloc), Hasher(hash), Equal(equal) {
+                     const ArgumentAlloc& alloc = ArgumentAlloc()) : EntryAlloc(alloc), Hasher(hash), Equal(equal) {
         rehash(bucket_count);
     }
 
@@ -330,7 +331,7 @@ public:
     
     faster_hashtable(const faster_hashtable& other, ArgumentAlloc alloc) 
             :EntryAlloc(alloc), Hasher(other), Equal(other),  _max_load_factor(other._max_load_factor) {
-        rehash_for_other(other)
+        rehash_for_other(other);
         try {
             insert(other.begin(), other.end());
         } catch(...) {
@@ -364,7 +365,7 @@ public:
             if (static_cast<EntryAlloc>(*this) != static_cast<const EntryAlloc&>(other)) {
                 reset_to_empty_state();
             }
-            AssignIfTrue<EntryAlloc, AllocatorTraits::propagate_on_container_copy_assignment::value>()(*this, other);
+            assign_if_true<EntryAlloc, AllocatorTraits::propagate_on_container_copy_assignment::value>()(*this, other);
         }
         // 3.属性赋值
         _max_load_factor = other._max_load_factor;
@@ -382,7 +383,7 @@ public:
         } else if (AllocatorTraits::propagate_on_container_copy_assignment::value) {
             clear();
             reset_to_empty_state();
-            AssignIfTrue<EntryAlloc, AllocatorTraits::propagate_on_container_move_assignment::value>()(*this, std::move(other));
+            assign_if_true<EntryAlloc, AllocatorTraits::propagate_on_container_move_assignment::value>()(*this, std::move(other));
             swap_pointer(other);
         } else if (static_cast<EntryAlloc>(other) == static_cast<EntryAlloc>(*this)) {
             swap_pointer(other);
@@ -499,10 +500,10 @@ public:
         return end();
     }
 
-    iterator find(const key_type& key) {
+    iterator find(const FindKey& key) {
         size_t index = _hash_policy.index_for_hash(hash_object(key), _num_slots_minus_one);
         EntryPointer iter = _entries + ptrdiff_t(index);
-        for (uint8_t distance = 0; iert->distance_from_desired >= distance; ++distance, ++iter) {
+        for (uint8_t distance = 0; iter->distance_from_desired >= distance; ++distance, ++iter) {
             if (compares_equal(key, iter->value)) {
                 return { iter };
             }
@@ -510,15 +511,15 @@ public:
         return end();
     }
 
-    const_iterator find(const key_type& key) const {
+    const_iterator find(const FindKey& key) const {
         return const_cast<faster_hashtable*>(this)->find(key); // ?
     }
 
-    size_t count(const key_type& key) {
+    size_t count(const FindKey& key) {
         return find(key) == end() ? 1 : 0;
     }
 
-    std::pair<iterator, iterator> equal_range(const key_type& key) {
+    std::pair<iterator, iterator> equal_range(const FindKey& key) {
         iterator iter = find(key);
         if (iter == end()) {
             return std::make_pair(iter, iter);
@@ -527,7 +528,7 @@ public:
         }
     }
 
-    std::pair<iterator, iterator> equal_range(const key_type& key) const {
+    std::pair<iterator, iterator> equal_range(const FindKey& key) const {
         iterator found = find(key);
         if (found == end()) {
             return std::make_pair(found, found);
@@ -538,7 +539,7 @@ public:
 
     void rehash(size_t num_buckets) {
         // 1.计算当前所需slots数量
-        num_buckets = std::max(num_buckets, std::ceil(_num_elements / static_cast<size_t>(_max_load_factor)));
+        num_buckets = std::max(num_buckets, static_cast<size_t>(std::ceil(_num_elements / static_cast<size_t>(_max_load_factor))));
         if (num_buckets == 0) {
             return;
         } 
@@ -632,7 +633,7 @@ public:
 
     void reserve(size_t num_elements) {
         auto required_buckets = num_buckets_for_reserve(num_elements);
-        if (required_buckets > bucket_size()) {
+        if (required_buckets > bucket_count()) {
             rehash(num_elements);
         }
     }
@@ -687,6 +688,10 @@ public:
 
     size_t bucket(const FindKey& key) const {
         return _hash_policy.index_for_hash(hash_object(key), _num_slots_minus_one);
+    }
+
+    size_t bucket_count() const {
+        return _num_slots_minus_one ? _num_slots_minus_one + 1 : 0;
     }
 
     float load_factor() const {
@@ -757,13 +762,13 @@ private:
     float _max_load_factor = 0.5f;
     size_t _num_elements = 0;
 
-    static compute_max_lookups(size_t num_buckets) {
+    static size_t compute_max_lookups(size_t num_buckets) {
         int8_t desired = log2(num_buckets);
         return std::max(desired, ddaof::min_lookups);
     }
 
     size_t num_buckets_for_reserve(size_t num_elements) const {
-        return static_cast<size_t>(std::ceil(num_elements / std::min(0.5f, static_cast<double>(_max_load_factor))));
+        return static_cast<size_t>(std::ceil(num_elements / std::min(0.5f, static_cast<float>(_max_load_factor))));
     }
 
     void rehash_for_other_container(const faster_hashtable& other) { // ?
@@ -1236,13 +1241,13 @@ private:
 template<typename K, typename V, typename H = std::hash<K>, typename E = std::equal_to<K>, typename A = std::allocator<std::pair<K, V>> >
 class flat_hash_map : public ddaof::faster_hashtable<
             std::pair<K, V>, K,
-            H, ddaof::KeyOrValueHasher<K, std::pair<K, V>, H>,
-            E, ddaof::KeyOrValueEquality<K, std::pair<K, V>, E>,
+            H, ddaof::key_or_value_hasher<K, std::pair<K, V>, H>,
+            E, ddaof::key_or_value_equality<K, std::pair<K, V>, E>,
             A, typename std::allocator_traits<A>::template rebind_alloc<ddaof::faster_table_entry<std::pair<K, V>>>> {
 using Table = ddaof::faster_hashtable<
                                 std::pair<K, V>, K,
-                                H, ddaof::KeyOrValueHasher<K, std::pair<K, V>, H>,
-                                E, ddaof::KeyOrValueEquality<K, std::pair<K, V>, E>,
+                                H, ddaof::key_or_value_hasher<K, std::pair<K, V>, H>,
+                                E, ddaof::key_or_value_equality<K, std::pair<K, V>, E>,
                                 A, typename std::allocator_traits<A>::template rebind_alloc<ddaof::faster_table_entry<std::pair<K, V>>>>;
 public:
     using key_type = K;
@@ -1338,9 +1343,9 @@ class flat_hash_set
             T,
             T,
             H,
-            ddaof::functor_storage<size_t, H>,
+            ddaof::function_wrapper<size_t, H>,
             E,
-            ddaof::functor_storage<bool, E>,
+            ddaof::function_wrapper<bool, E>,
             A,
             typename std::allocator_traits<A>::template rebind_alloc<ddaof::faster_table_entry<T>>
         >
@@ -1350,9 +1355,9 @@ class flat_hash_set
         T,
         T,
         H,
-        ddaof::functor_storage<size_t, H>,
+        ddaof::function_wrapper<size_t, H>,
         E,
-        ddaof::functor_storage<bool, E>,
+        ddaof::function_wrapper<bool, E>,
         A,
         typename std::allocator_traits<A>::template rebind_alloc<ddaof::faster_table_entry<T>>
     >;
