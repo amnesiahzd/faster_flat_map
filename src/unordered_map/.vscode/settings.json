@@ -1,0 +1,12 @@
+{
+    "files.associations": {
+        "cstddef": "cpp",
+        "initializer_list": "cpp",
+        "*.tcc": "cpp",
+        "vector": "cpp",
+        "deque": "cpp",
+        "string": "cpp",
+        "unordered_map": "cpp",
+        "system_error": "cpp"
+    }
+}

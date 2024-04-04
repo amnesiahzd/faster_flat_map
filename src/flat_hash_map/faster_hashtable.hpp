@@ -66,7 +66,7 @@ struct functor_storage : Functor {
     }
 };
 
-template<typename Result, typename... Args> // AmnesiaHzd pointer 特化
+template<typename Result, typename... Args>
 struct functor_storage<Result, Result (*)(Args...)> {
     typedef Result (*function_ptr)(Args...);
     // why cannt use using (*function_ptr)(Args...) = Result?
@@ -126,7 +126,6 @@ struct KeyOrValueHasher : functor_storage<size_t, hasher> { // Encapsulate hash 
 template<typename key_type, typename value_type, typename key_equal>
 struct KeyOrValueEquality : functor_storage<bool, key_equal> {
     typedef functor_storage<bool, key_equal> equality_storage;
-    // why cant use equality_storage = functor_storage<bool, key_equal>
     KeyOrValueEquality() = default;
     KeyOrValueEquality(const key_equal& equality)
             : equality_storage(equality) {}
@@ -200,12 +199,12 @@ struct faster_table_entry {
 
     template<typename... Args>
     void emplace(int8_t distance, Args&& ...args) { 
-        new (std::addressof(_value)) T(std::forward<Args>(args)...); // AmnesiaHzd: new object at this position // judge if can use a constructor
+        new (std::addressof(_value)) T(std::forward<Args>(args)...);
         _distance_from_desired = distance;
     }
 
     void destroy_value() {
-        _value.~T(); // TODO: how about to add a judge function to judge if it had a destroy function
+        _value.~T();
         _distance_from_desired = -1;
     }
 
@@ -383,7 +382,7 @@ public:
             : EntryAlloc(alloc), Hasher(other), Equal(other), _max_load_factor(other._max_load_factor) {
         rehash_for_other_container(other);
         try {
-            insert(other.begin(), other.end()); // AmnesiaHzd: but acctually there is no except in the insert
+            insert(other.begin(), other.end());
         } catch(...) {
             clear();
             deallocate_data(_entries, _num_slots_minus_one, _max_lookups);
@@ -416,7 +415,7 @@ public:
             if (static_cast<EntryAlloc>(*this) != static_cast<const EntryAlloc&>(other)) {
                 reset_to_empty_state();
             }
-            AssignIfTrue<EntryAlloc, AllocatorTraits::propagate_on_container_copy_assignment::value>()(*this, other); // TODO
+            AssignIfTrue<EntryAlloc, AllocatorTraits::propagate_on_container_copy_assignment::value>()(*this, other);
         }
 
         _max_load_factor = other._max_load_factor;
@@ -430,7 +429,7 @@ public:
     faster_hashtable& operator=(const faster_hashtable&& other) noexcept {
         if (this == std::addressof(other)) {
             return *this;
-        } else if (AllocatorTraits::propagate_on_container_move_assignment::value) { // TODO
+        } else if (AllocatorTraits::propagate_on_container_move_assignment::value) {
             clear();
             reset_to_empty_state();
             AssignIfTrue<EntryAlloc, AllocatorTraits::propagate_on_container_move_assignment::value>()(*this, std::move(other));
@@ -462,7 +461,7 @@ public:
         return static_cast<const ArgumentEqual&>(*this);
     }
 
-    const ArgumentHash & hash_function() const {
+    const ArgumentHash& hash_function() const {
         return static_cast<const ArgumentHash&>(*this);
     }
 
