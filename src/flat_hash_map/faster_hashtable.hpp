@@ -509,7 +509,7 @@ public:
         }
 
         ValueType* operator->() const {
-            return std::addressof(current->value);
+            return std::addressof(current->_value);
         }
 
         operator templated_iterator<const value_type>() const {
@@ -555,8 +555,8 @@ public:
     iterator find(const FindKey& key) {
         size_t index = _hash_policy.index_for_hash(hash_object(key), _num_slots_minus_one);
         EntryPointer it = _entries + ptrdiff_t(index);
-        for (int8_t distance = 0; it->distance_from_desired >= distance; ++distance, ++it) {
-            if (compares_equal(key, it->value)) {
+        for (int8_t distance = 0; it->_distance_from_desired >= distance; ++distance, ++it) {
+            if (compares_equal(key, it->_value)) {
                 return { it };
             }
         }
@@ -610,7 +610,7 @@ public:
         
         // step4 swap new and old buctets
         for (EntryPointer it = new_buckets; it != special_end_item; ++it) {
-            it->distance_from_desired = -1;
+            it->_distance_from_desired = -1;
         }
         std::swap(_entries, new_buckets);
         std::swap(_num_slots_minus_one, num_buckets);
@@ -624,7 +624,7 @@ public:
         // step5 deallocate old buckets
         for (EntryPointer it = new_buckets, end = it + static_cast<ptrdiff_t>(num_buckets + old_max_lookups); it != end; ++it) {
             if (it->has_value()) {
-                emplace(std::move(it->value));
+                emplace(std::move(it->_value));
                 it->destroy_value();
             }
         }
@@ -648,7 +648,7 @@ public:
         --_num_elements;
 
         for (EntryPointer next = current + ptrdiff_t(1); !next->is_at_desired_position(); ++current, ++next) {
-            current->emplace(next->distance_from_desired - 1, std::move(next->value));
+            current->emplace(next->_distance_from_desired - 1, std::move(next->_value));
             next->destroy_value();
         }
         return { to_erase.current };
@@ -763,8 +763,8 @@ public:
         // step2: check the key if it has already in the hashtable
         EntryPointer current_entry = _entries + ptrdiff_t(index);
         int8_t distance_from_desired = 0;
-        for (; current_entry->distance_from_desired >= distance_from_desired; ++current_entry, ++distance_from_desired) {
-            if (compares_equal(key, current_entry->value)) {
+        for (; current_entry->_distance_from_desired >= distance_from_desired; ++current_entry, ++distance_from_desired) {
+            if (compares_equal(key, current_entry->_value)) {
                 return std::make_pair(current_entry, false);
             }
         }
@@ -844,8 +844,8 @@ private:
         } else {/*Nothing need to do*/}
 
         value_type to_insert(std::forward<Key>(key), std::forward<Args>(args)...);
-        swap(distance_from_desired, current_entry->distance_from_desired);
-        swap(to_insert, current_entry->value);
+        swap(distance_from_desired, current_entry->_distance_from_desired);
+        swap(to_insert, current_entry->_value);
         iterator result = { current_entry };
 
         for (++distance_from_desired, ++current_entry;; ++current_entry) {
@@ -853,14 +853,14 @@ private:
                 current_entry->emplace(distance_from_desired, std::move(to_insert));
                 ++_num_elements;
                 return { result, true };
-            } else if (current_entry->distance_from_desired < distance_from_desired) {
-                swap(distance_from_desired, current_entry->distance_from_desired);
-                swap(to_insert, current_entry->value);
+            } else if (current_entry->_distance_from_desired < distance_from_desired) {
+                swap(distance_from_desired, current_entry->_distance_from_desired);
+                swap(to_insert, current_entry->_value);
                 ++distance_from_desired;
             } else {
                 ++distance_from_desired;
                 if (distance_from_desired == _max_lookups) {
-                    swap(to_insert, result.current->value);
+                    swap(to_insert, result.current->_value);
                     grow();
                     return emplace(std::move(to_insert));
                 }
