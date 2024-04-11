@@ -553,7 +553,7 @@ public:
     }
 
     iterator find(const FindKey& key) {
-        size_t index = hash_policy.index_for_hash(hash_object(key), _num_slots_minus_one);
+        size_t index = _hash_policy.index_for_hash(hash_object(key), _num_slots_minus_one);
         EntryPointer it = _entries + ptrdiff_t(index);
         for (int8_t distance = 0; it->distance_from_desired >= distance; ++distance, ++it) {
             if (compares_equal(key, it->value)) {
