@@ -268,7 +268,7 @@ public:
     faster_hashtable() {}
     faster_hashtable(size_type bucket_count, 
                      const ArgumentHash& hash = ArgumentHash(), 
-                     const ArgumentEqual& equal = Equal(), 
+                     const ArgumentEqual& equal = ArgumentEqual(), 
                      const ArgumentAlloc& alloc = ArgumentAlloc()) : EntryAlloc(alloc), Hasher(hash), Equal(equal) {
         rehash(bucket_count);
     }
@@ -356,7 +356,7 @@ public:
 
     faster_hashtable& operator=(const faster_hashtable& other) {
         // 1.判断是否相等
-        if (other == *this) {
+        if (std::addressof(other) == this) {
             return *this;
         }
         // 2.清除自身状态
@@ -539,7 +539,7 @@ public:
 
     void rehash(size_t num_buckets) {
         // 1.计算当前所需slots数量
-        num_buckets = std::max(num_buckets, static_cast<size_t>(std::ceil(_num_elements / static_cast<size_t>(_max_load_factor))));
+        num_buckets = std::max(num_buckets, static_cast<size_t>(std::ceil(_num_elements / static_cast<double>(_max_load_factor))));
         if (num_buckets == 0) {
             reset_to_empty_state();
             return;
