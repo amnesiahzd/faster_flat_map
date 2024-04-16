@@ -132,7 +132,7 @@ struct key_or_value_equality : public function_wrapper<bool, Equal> {
 };
 
 template<typename T>
-struct faster_table_entry {
+struct alignas(16) faster_table_entry {
     faster_table_entry() {}
     faster_table_entry(int distance_from_desired) : _distance_from_desired(distance_from_desired) {}
     faster_table_entry(faster_table_entry& other) : _distance_from_desired(other._distance_from_desired) {}
