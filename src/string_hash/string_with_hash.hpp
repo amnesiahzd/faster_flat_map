@@ -8,7 +8,7 @@
 
 namespace ddaof {
 
-size_t STR_STABLE_LENGTH = 64;
+constexpr size_t STR_STABLE_LENGTH = 64;
 
 class string_with_hash {
 public:

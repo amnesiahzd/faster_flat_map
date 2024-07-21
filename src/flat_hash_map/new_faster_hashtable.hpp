@@ -1,11 +1,12 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
-#include <math.h>
 #include <memory>
+#include <stdexcept>
 #include <type_traits>
 #include <utility>
 
@@ -132,7 +133,7 @@ struct key_or_value_equality : public function_wrapper<bool, Equal> {
 };
 
 template<typename T>
-struct alignas(16) faster_table_entry {
+struct faster_table_entry {
     faster_table_entry() {}
     faster_table_entry(int distance_from_desired) : _distance_from_desired(distance_from_desired) {}
     faster_table_entry(faster_table_entry& other) : _distance_from_desired(other._distance_from_desired) {}
@@ -306,7 +307,7 @@ public:
         insert(first, last);
     }
 
-    faster_hashtable(std::initializer_list<T>& initializer_list, // AmnesiaHzd: at origin codes, here isnt a ref
+    faster_hashtable(std::initializer_list<T> initializer_list,
                      size_type bucket_count = 0, 
                      const ArgumentHash& hash = ArgumentHash(),
                      const ArgumentEqual& equal = ArgumentEqual(), 
@@ -318,12 +319,12 @@ public:
         insert(initializer_list.begin(), initializer_list.end());
     }
 
-    faster_hashtable(std::initializer_list<T>& initializer_list,
+    faster_hashtable(std::initializer_list<T> initializer_list,
                      size_type bucket_count, 
                      const ArgumentAlloc& alloc = ArgumentAlloc())
             : faster_hashtable(bucket_count, ArgumentHash(), ArgumentEqual(), alloc) {}
 
-    faster_hashtable(std::initializer_list<T>& initializer_list,
+    faster_hashtable(std::initializer_list<T> initializer_list,
                      size_type bucket_count, 
                      const ArgumentHash& hash = ArgumentHash(), 
                      const ArgumentAlloc& alloc = ArgumentAlloc())
@@ -763,7 +764,7 @@ private:
     float _max_load_factor = 0.5f;
     size_t _num_elements = 0;
 
-    static size_t compute_max_lookups(size_t num_buckets) {
+    static int8_t compute_max_lookups(size_t num_buckets) {
         int8_t desired = log2(num_buckets);
         return std::max(desired, ddaof::min_lookups);
     }
