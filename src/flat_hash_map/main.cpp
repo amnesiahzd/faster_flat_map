@@ -8,16 +8,16 @@
 using FasterHashTable = ddaof::flat_hash_map<int, int>;
 
 // 测试参数
-const size_t TEST_SIZE = 4000000;  // 测试元素数量
+const size_t TEST_SIZE = 8000000;  // 测试元素数量
 const int NUM_TESTS = 8;          // 测试次数
 
 // 生成随机数的函数
-std::vector<int> generate_random_data(size_t size) {
+std::vector<uint64_t> generate_random_data(size_t size) {
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(1, 1000000);
+    std::uniform_int_distribution<uint64_t> dis(1, 1000000);  // 生成 uint64_t 类型的随机数
 
-    std::vector<int> data(size);
+    std::vector<uint64_t> data(size);
     for (auto& elem : data) {
         elem = dis(gen);
     }
@@ -26,7 +26,7 @@ std::vector<int> generate_random_data(size_t size) {
 
 // 测试插入性能的函数
 template <typename MapType>
-long long test_insert_performance(const std::vector<int>& data) {
+long long test_insert_performance(const std::vector<uint64_t>& data) {
     auto start = std::chrono::high_resolution_clock::now();
 
     MapType map;
@@ -40,7 +40,7 @@ long long test_insert_performance(const std::vector<int>& data) {
 
 // 测试查找性能的函数
 template <typename MapType>
-long long test_lookup_performance(const std::vector<int>& data, MapType& map) {
+long long test_lookup_performance(const std::vector<uint64_t>& data, MapType& map) {
     auto start = std::chrono::high_resolution_clock::now();
 
     for (auto& elem : data) {
@@ -68,6 +68,7 @@ int main() {
 
     for (int i = 0; i < NUM_TESTS; ++i) {
         // 测试自定义哈希表
+        std::cout << "has passed: " << i << std::endl;
         total_insert_time_faster += test_insert_performance<FasterHashTable>(data);
         total_lookup_time_faster += test_lookup_performance(data, faster_map);
 

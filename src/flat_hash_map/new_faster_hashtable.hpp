@@ -10,6 +10,9 @@
 #include <type_traits>
 #include <utility>
 
+#include <iostream>
+#include "memory_pool.hpp"
+
 #ifdef _MSC_VER
 #define DDAOF_NOINLINE(...) __declspec(noinline) __VA_ARGS__
 #else
@@ -1241,6 +1244,7 @@ private:
 };
 
 template<typename K, typename V, typename H = std::hash<K>, typename E = std::equal_to<K>, typename A = std::allocator<std::pair<K, V>> >
+// template<typename K, typename V, typename H = std::hash<K>, typename E = std::equal_to<K>, typename A = ddaof::AmnesiaAllocator<std::pair<K, V>> >
 class flat_hash_map : public ddaof::faster_hashtable<
             std::pair<K, V>, K,
             ddaof::key_or_value_hasher<K, std::pair<K, V>, H>, H,
